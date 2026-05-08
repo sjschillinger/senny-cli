@@ -57,8 +57,8 @@ export async function loadConfig(cwd = process.cwd()): Promise<SennyConfig> {
 
 export async function loadLateMCPConfig(cwd: string): Promise<SennyConfig["mcpServers"]> {
   const candidates = [
-    path.join(cwd, ".late", "mcp_config.json"),
     path.join(cwd, ".senny", "mcp_config.json"),
+    path.join(cwd, ".late", "mcp_config.json"),
     path.join(configHome(), "mcp_config.json")
   ];
   for (const file of candidates) {

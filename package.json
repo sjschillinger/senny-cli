@@ -4,7 +4,8 @@
   "description": "TypeScript agent harness inspired by Late CLI's orchestration model.",
   "type": "module",
   "bin": {
-    "senny": "./dist/cli.js"
+    "senny": "./dist/cli.js",
+    "senny-bun": "./bin/senny-bun"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && (cd core-go && go build -o bin/senny-core ./cmd/senny-core && go build -o bin/senny-late ./cmd/late && go build -o bin/senny-mcp-run ./cmd/mcp-run)",
@@ -18,6 +19,7 @@
     "bench:runtime:node": "node scripts/runtime-memory.mjs",
     "bench:runtime:bun": "bun scripts/runtime-memory.mjs",
     "bench:runtime": "npm run bench:runtime:node && npm run bench:runtime:bun",
+    "smoke:real": "node scripts/smoke-real-model.mjs",
     "clean": "rm -rf dist *.tgz"
   },
   "files": [
@@ -26,6 +28,8 @@
     "README.md",
     "LICENSE",
     "docs",
+    "bin/senny-bun",
+    "scripts/smoke-real-model.mjs",
     "scripts/runtime-memory.mjs"
   ],
   "engines": {

@@ -7,8 +7,8 @@ import (
 	"late/internal/client"
 	"late/internal/common"
 	"late/internal/pathutil"
-	"late/internal/skill"
 	"late/internal/session"
+	"late/internal/skill"
 	"late/internal/tool"
 )
 
@@ -18,8 +18,8 @@ import (
 // This replaces the duplicated accumulation logic in tui/state.go (GenerationState.Append)
 // and agent/agent.go (manual accumulation loop).
 type StreamAccumulator struct {
-	Content   string
-	Reasoning string
+	Content      string
+	Reasoning    string
 	ToolCalls    []client.ToolCall
 	Usage        client.Usage
 	FinishReason string
@@ -87,16 +87,16 @@ func ExecuteToolCalls(ctx context.Context, sess *session.Session, toolCalls []cl
 		// Fail-closed: if no confirmation middleware is provided, do not
 		// execute shell commands (they must be explicitly approved by a
 		// middleware such as the TUI confirm middleware).
-if len(middlewares) == 0 {
-				if t := sess.Registry.Get(tc.Function.Name); t != nil {
-					if _, ok := t.(*tool.ShellTool); ok {
-						result := "shell command requires explicit approval before execution"
-						if err := sess.AddToolResultMessage(tc.ID, result); err != nil {
-							return err
-						}
-						continue
+		if len(middlewares) == 0 {
+			if t := sess.Registry.Get(tc.Function.Name); t != nil {
+				if _, ok := t.(*tool.ShellTool); ok {
+					result := "shell command requires explicit approval before execution"
+					if err := sess.AddToolResultMessage(tc.ID, result); err != nil {
+						return err
 					}
+					continue
 				}
+			}
 		}
 
 		result, err := runner(ctx, tc)
@@ -146,6 +146,7 @@ func RegisterTools(reg *tool.Registry, enabledTools map[string]bool, isPlanning 
 	if userSkillsDir, err := pathutil.LateSkillsDir(); err == nil {
 		skillDirs = append(skillDirs, userSkillsDir)
 	}
+	skillDirs = append(skillDirs, pathutil.SennyProjectSkillsDir())
 	skillDirs = append(skillDirs, pathutil.LateProjectSkillsDir())
 
 	skills, err := skill.DiscoverSkills(skillDirs)

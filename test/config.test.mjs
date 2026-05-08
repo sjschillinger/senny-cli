@@ -44,6 +44,20 @@ test("loadLateMCPConfig reads project .late config first", async () => {
   }
 });
 
+test("loadLateMCPConfig prefers project .senny over .late", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "senny-mcp-precedence-"));
+  try {
+    await mkdir(path.join(cwd, ".late"), { recursive: true });
+    await mkdir(path.join(cwd, ".senny"), { recursive: true });
+    await writeFile(path.join(cwd, ".late", "mcp_config.json"), JSON.stringify({ mcpServers: { demo: { command: "late" } } }));
+    await writeFile(path.join(cwd, ".senny", "mcp_config.json"), JSON.stringify({ mcpServers: { demo: { command: "senny" } } }));
+    const config = await loadLateMCPConfig(cwd);
+    assert.equal(config.demo.command, "senny");
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("loadConfig honors explicit cwd for project MCP config", async () => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "senny-config-cwd-"));
   const home = await mkdtemp(path.join(os.tmpdir(), "senny-home-"));

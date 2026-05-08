@@ -55,13 +55,19 @@ func LoadMCPConfig() (*MCPConfig, error) {
 
 // findConfigPath searches for config files in order of precedence
 func findConfigPath() (string, error) {
-	// 1. Project-level: .late/mcp_config.json in current directory
+	// 1. Senny project-level: .senny/mcp_config.json in current directory
+	sennyProjectPath := common.SennyProjectMCPConfigPath()
+	if _, err := os.Stat(sennyProjectPath); err == nil {
+		return sennyProjectPath, nil
+	}
+
+	// 2. Late-compatible project-level: .late/mcp_config.json in current directory
 	projectPath := common.LateProjectMCPConfigPath()
 	if _, err := os.Stat(projectPath); err == nil {
 		return projectPath, nil
 	}
 
-	// 2. User-level config path
+	// 3. User-level config path
 	userPath, err := common.LateUserMCPConfigPath()
 	if err != nil {
 		return "", fmt.Errorf("failed to get config directory: %w", err)

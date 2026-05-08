@@ -60,6 +60,9 @@ senny worktree create <path> [ref]
 senny worktree remove <path>
 senny worktree active
 senny mcp list
+senny migrate senny
+senny core config
+senny core tools --planning
 ```
 
 Mutating tools prompt before running in interactive use. Use `--unsafe` or `--yes` only when you intentionally approve those changes.
@@ -81,7 +84,7 @@ Add MCP stdio servers to `~/.config/senny/config.json`:
 
 Tools are exposed to the model as `mcp_<server>_<tool>`.
 
-Senny also loads Late-style MCP config from `.late/mcp_config.json` in the project root and expands `${ENV_VAR}` references.
+Senny loads project MCP config from `.senny/mcp_config.json`, then falls back to Late-style `.late/mcp_config.json`, and expands `${ENV_VAR}` references.
 
 ## Skills
 
@@ -112,3 +115,15 @@ npm run bench:runtime
 ```
 
 This measures the TypeScript wrapper and native Go core under Node and Bun. See `docs/runtime.md` for details.
+
+## TypeScript Integration
+
+Use the SDK when embedding Senny into a TypeScript application. See `docs/typescript-app.md`.
+
+## Real-Model Smoke Test
+
+```bash
+OPENAI_BASE_URL=http://localhost:8080 npm run smoke:real
+```
+
+This runs the default TypeScript-facing CLI path against a real OpenAI-compatible endpoint.

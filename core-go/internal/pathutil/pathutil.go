@@ -41,7 +41,13 @@ func LateSessionDir() (string, error) {
 	return filepath.Join(homeDir, ".local", "share", "late", "sessions"), nil
 }
 
-// LateProjectMCPConfigPath returns the relative project-local MCP config
+// SennyProjectMCPConfigPath returns the relative Senny project-local MCP config
+// location (".senny/mcp_config.json"), resolved relative to process CWD.
+func SennyProjectMCPConfigPath() string {
+	return filepath.Join(".senny", "mcp_config.json")
+}
+
+// LateProjectMCPConfigPath returns the relative Late-compatible project-local MCP config
 // location (".late/mcp_config.json"), resolved relative to process CWD.
 func LateProjectMCPConfigPath() string {
 	return filepath.Join(".late", "mcp_config.json")
@@ -65,4 +71,8 @@ func LateSkillsDir() (string, error) {
 
 func LateProjectSkillsDir() string {
 	return filepath.Join(".late", "skills")
+}
+
+func SennyProjectSkillsDir() string {
+	return filepath.Join(".senny", "skills")
 }

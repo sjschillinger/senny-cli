@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import path from "node:path";
+import { promises as fs } from "node:fs";
 import { loadConfig } from "./config.js";
 import { OpenAICompatClient } from "./client.js";
 import { Agent } from "./agent.js";
@@ -57,6 +58,7 @@ function printHelp(): void {
   senny worktree remove <path>         Remove a worktree
   senny worktree active                Show active worktree
   senny mcp list                       List configured MCP tools
+  senny migrate senny [--force]         Copy .late project state to .senny
   senny core config                    Show native core config
   senny core mcp                       Show native core MCP servers
   senny core tools [--planning]         Show native core tools
@@ -185,6 +187,48 @@ async function handleMCP(args: Args): Promise<boolean> {
   return true;
 }
 
+async function handleMigrate(args: Args): Promise<boolean> {
+  if (args.command !== "migrate") return false;
+  if ((args.rest[0] ?? "") !== "senny") {
+    printHelp();
+    return true;
+  }
+  const force = args.rest.includes("--force");
+  const from = path.join(args.cwd, ".late");
+  const to = path.join(args.cwd, ".senny");
+  const copied: string[] = [];
+  for (const name of ["mcp_config.json", "allowed_tools.json", "allowed_commands.json"]) {
+    if (await copyIfPresent(path.join(from, name), path.join(to, name), force)) copied.push(name);
+  }
+  if (await copyIfPresent(path.join(from, "skills"), path.join(to, "skills"), force)) copied.push("skills/");
+  if (copied.length === 0) {
+    console.log("No .late project state copied.");
+    return true;
+  }
+  console.log(`Copied ${copied.join(", ")} to .senny.`);
+  return true;
+}
+
+async function copyIfPresent(from: string, to: string, force: boolean): Promise<boolean> {
+  try {
+    const source = await fs.stat(from);
+    if (!force) {
+      try {
+        await fs.stat(to);
+        return false;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      }
+    }
+    await fs.mkdir(path.dirname(to), { recursive: true });
+    await fs.cp(from, to, { recursive: source.isDirectory(), force });
+    return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw err;
+  }
+}
+
 async function withCore<T>(args: Args, fn: (client: SennyCoreClient) => Promise<T>): Promise<T> {
   const client = await SennyCoreClient.start({ cwd: args.cwd });
   try {
@@ -255,6 +299,7 @@ async function main(): Promise<void> {
   if (await handleSession(args)) return;
   if (await handleWorktree(args)) return;
   if (await handleMCP(args)) return;
+  if (await handleMigrate(args)) return;
   if (await handleCore(args)) return;
 
   if (!args.prompt) {
