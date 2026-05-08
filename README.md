@@ -1,0 +1,106 @@
+# Senny CLI
+
+Senny is a TypeScript-first coding-agent harness derived from the public behavior and goals of Late CLI, with an architecture intended for future Senny development.
+
+This repository keeps `references/late-cli` as the upstream fork reference and uses it as a behavioral baseline. Claude Code reference files may inform product goals at a high level, but Senny's TypeScript implementation is original and does not port or closely rewrite Claude Code source.
+
+## Architecture
+
+Senny is pivoting to a hybrid architecture:
+
+- `core-go/`: native Go harness core exposed over stdio JSON-RPC.
+- `core-go/cmd/late`: authorized Late native TUI entrypoint preserved as `senny-late` in builds.
+- `core-go/cmd/mcp-run`: authorized Late MCP runner entrypoint preserved as `senny-mcp-run` in builds.
+- `src/sdk/`: TypeScript SDK that starts and talks to the native core.
+- `src/`: TypeScript CLI, prototype harness modules, MCP/skills adapters, and integration layer.
+
+This keeps local-agent efficiency close to Late while preserving a first-class TypeScript integration surface for Senny. The TypeScript CLI defaults one-shot prompts to the bundled native Go core; the prototype TypeScript path remains available with `--ts`.
+
+## Status
+
+This is a usable TypeScript Senny base. It includes:
+
+- OpenAI-compatible streaming client
+- Persistent sessions
+- Read, write, exact-replace edit, and bash tools
+- Permission checks for mutating tools
+- Project memory injection from `SENNY.md`, `AGENTS.md`, and `.senny/memory.md`
+- Lightweight context compaction for long sessions
+- Tool-use summaries after tool execution
+- Session list/load/delete commands
+- Git worktree commands
+- Stdio MCP tool registration from config
+- Cancellation-aware interactive runs
+- Conservative command analysis for shell safety
+- Late-style Agent Skills from `SKILL.md`
+- Local/global/session allow-lists with TTL metadata
+- Late-compatible session metadata JSON shape
+
+## Usage
+
+```bash
+npm install
+npm run build
+OPENAI_BASE_URL=http://localhost:8080 senny "inspect this project"
+```
+
+Run `senny --help` for flags.
+
+## Commands
+
+```bash
+senny                         # interactive mode
+senny "make a focused change"  # one-shot through native Go core
+senny --ts "prototype path"     # one-shot through TypeScript prototype fallback
+senny session list
+senny session load <id-prefix>
+senny session delete <id-prefix>
+senny worktree list
+senny worktree create <path> [ref]
+senny worktree remove <path>
+senny worktree active
+senny mcp list
+```
+
+Mutating tools prompt before running in interactive use. Use `--unsafe` or `--yes` only when you intentionally approve those changes.
+
+## MCP
+
+Add MCP stdio servers to `~/.config/senny/config.json`:
+
+```json
+{
+  "mcpServers": {
+    "example": {
+      "command": "node",
+      "args": ["server.js"]
+    }
+  }
+}
+```
+
+Tools are exposed to the model as `mcp_<server>_<tool>`.
+
+Senny also loads Late-style MCP config from `.late/mcp_config.json` in the project root and expands `${ENV_VAR}` references.
+
+## Skills
+
+Place skills under `~/.config/senny/skills`, `.late/skills`, or `.senny/skills`. Each skill directory should contain a `SKILL.md` with YAML frontmatter:
+
+```markdown
+---
+name: demo
+description: Demo skill
+---
+Skill instructions go here.
+```
+
+After the model calls `activate_skill`, scripts in `scripts/` are exposed as `skill_<skill>_<script>` tools.
+
+## Verification
+
+```bash
+npm run check
+```
+
+The check script builds the project, runs the test suite, verifies CLI help, and performs an npm package dry run.

@@ -1,0 +1,37 @@
+{
+  "name": "senny-cli",
+  "version": "0.1.0",
+  "description": "TypeScript agent harness inspired by Late CLI's orchestration model.",
+  "type": "module",
+  "bin": {
+    "senny": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && (cd core-go && go build -o bin/senny-core ./cmd/senny-core && go build -o bin/senny-late ./cmd/late && go build -o bin/senny-mcp-run ./cmd/mcp-run)",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "check": "npm run test && node dist/cli.js --help && (cd core-go && go test ./... && go build ./cmd/late ./cmd/mcp-run ./cmd/senny-core) && npm pack --dry-run",
+    "start": "node dist/cli.js",
+    "dev": "node --loader ts-node/esm src/cli.ts",
+    "clean": "rm -rf dist *.tgz"
+  },
+  "files": [
+    "dist",
+    "core-go/bin",
+    "README.md",
+    "docs"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "sh-syntax": "^0.5.8",
+    "yaml": "^2.8.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  },
+  "license": "BUSL-1.1"
+}
