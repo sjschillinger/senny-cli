@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"testing"
 
-	"late/internal/tool/ast"
+	"senny/internal/tool/ast"
 )
 
 func skipIfNoPwshTool(t *testing.T) {

@@ -3,7 +3,7 @@ package session
 import (
 	"encoding/json"
 	"fmt"
-	"late/internal/common"
+	"senny/internal/common"
 	"os"
 	"path/filepath"
 	"sort"
@@ -24,7 +24,7 @@ type SessionMeta struct {
 
 // SessionDir returns the directory where session metadata and histories are stored
 var SessionDir = func() (string, error) {
-	return common.LateSessionDir()
+	return common.SennySessionDir()
 }
 
 // SaveSessionMeta saves session metadata to the sessions directory

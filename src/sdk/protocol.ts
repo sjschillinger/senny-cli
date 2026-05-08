@@ -40,11 +40,26 @@ export interface RunResult {
   status: string;
 }
 
-export interface CoreEvent {
-  sessionId: string;
-  type: string;
-  [key: string]: unknown;
+export interface CoreStreamDelta {
+  content: string;
+  reasoning_content?: string;
+  tool_calls?: Array<{
+    index: number;
+    id: string;
+    type: string;
+    function: { name: string; arguments: string };
+  }>;
+  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+  finish_reason?: string;
 }
+
+export type CoreEvent =
+  | { sessionId: string; type: "turn_start"; turn?: number }
+  | { sessionId: string; type: "turn_end" }
+  | { sessionId: string; type: "stream"; delta: CoreStreamDelta }
+  | { sessionId: string; type: "done"; content: string }
+  | { sessionId: string; type: "error"; message: string }
+  | { sessionId: string; type: "cancelled" };
 
 export interface SessionMeta {
   id: string;

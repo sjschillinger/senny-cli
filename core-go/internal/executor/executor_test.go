@@ -2,9 +2,9 @@ package executor
 
 import (
 	"context"
-	"late/internal/client"
-	"late/internal/common"
-	"late/internal/session"
+	"senny/internal/client"
+	"senny/internal/common"
+	"senny/internal/session"
 	"path/filepath"
 	"strings"
 	"testing"

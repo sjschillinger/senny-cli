@@ -2,7 +2,7 @@ package tui
 
 import (
 	"fmt"
-	"late/internal/common"
+	"senny/internal/common"
 	"strings"
 	"time"
 

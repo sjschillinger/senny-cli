@@ -1,7 +1,7 @@
 package common
 
 import (
-	"late/internal/client"
+	"senny/internal/client"
 	"testing"
 )
 

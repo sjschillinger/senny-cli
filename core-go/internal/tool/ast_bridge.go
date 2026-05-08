@@ -1,7 +1,7 @@
 package tool
 
 import (
-	"late/internal/tool/ast"
+	"senny/internal/tool/ast"
 )
 
 // astAnalyzer wraps the ast pipeline and implements CommandAnalyzer so it can

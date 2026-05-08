@@ -1,7 +1,7 @@
 package config
 
 import (
-	"late/internal/pathutil"
+	"senny/internal/pathutil"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -23,7 +23,8 @@ func TestLoadConfig_MissingFileCreatesDefault(t *testing.T) {
 		t.Fatalf("LoadConfig() missing default enabled tools: %#v", cfg.EnabledTools)
 	}
 
-	configPath := lateConfigPath(t)
+	// Default config should now be bootstrapped at the senny path.
+	configPath := sennyConfigPath(t)
 	if _, err := os.Stat(configPath); err != nil {
 		t.Fatalf("expected config file to be created at %s: %v", configPath, err)
 	}
@@ -241,7 +242,8 @@ func TestLoadConfig_MalformedFileFallsBackWithError(t *testing.T) {
 func TestLoadConfig_ReadErrorFallsBackWithError(t *testing.T) {
 	configRoot := t.TempDir()
 	setUserConfigEnv(t, configRoot)
-	configPath := lateConfigPath(t)
+	// Block the senny config path (primary) by making it a directory.
+	configPath := sennyConfigPath(t)
 
 	if err := os.MkdirAll(configPath, 0o755); err != nil {
 		t.Fatal(err)
@@ -295,6 +297,17 @@ func lateConfigPath(t *testing.T) string {
 	configDir, err := pathutil.LateConfigDir()
 	if err != nil {
 		t.Fatalf("LateConfigDir() error = %v", err)
+	}
+
+	return filepath.Join(configDir, "config.json")
+}
+
+func sennyConfigPath(t *testing.T) string {
+	t.Helper()
+
+	configDir, err := pathutil.SennyConfigDir()
+	if err != nil {
+		t.Fatalf("SennyConfigDir() error = %v", err)
 	}
 
 	return filepath.Join(configDir, "config.json")

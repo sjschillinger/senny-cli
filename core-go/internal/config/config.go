@@ -3,7 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"late/internal/pathutil"
+	"senny/internal/pathutil"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -61,40 +61,36 @@ func defaultConfig() Config {
 }
 
 func LoadConfig() (*Config, error) {
-	lateConfigDir, err := pathutil.LateConfigDir()
+	sennyConfigDir, err := pathutil.SennyConfigDir()
 	if err != nil {
 		return nil, err
 	}
-	configPath := filepath.Join(lateConfigDir, "config.json")
+	sennyConfigPath := filepath.Join(sennyConfigDir, "config.json")
 
-	content, err := os.ReadFile(configPath)
+	// Try senny config first, then fall back to late config.
+	configDir, configPath, content, err := loadConfigFile(sennyConfigDir, sennyConfigPath)
 	if err != nil {
-		if os.IsNotExist(err) {
-			// Pre-populate with a default config that enables everything
-			fallback := defaultConfig()
-			defaultData, _ := json.MarshalIndent(fallback, "", "  ")
-
-			// Ensure directory exists
-			if err := os.MkdirAll(lateConfigDir, configDirPerm); err != nil {
-				return &fallback, fmt.Errorf("failed to create config directory: %w", err)
-			}
-
-			if err := os.WriteFile(configPath, defaultData, configFilePerm); err != nil {
-				return &fallback, fmt.Errorf("failed to write default config: %w", err)
-			}
-
-			if err := ensureSecureConfigPermissions(lateConfigDir, configPath); err != nil {
-				return &fallback, err
-			}
-
-			return &fallback, nil
-		}
-
 		fallback := defaultConfig()
 		return &fallback, err
 	}
+	if content == nil {
+		// Neither senny nor late config exists — bootstrap senny config.
+		fallback := defaultConfig()
+		defaultData, _ := json.MarshalIndent(fallback, "", "  ")
 
-	permErr := ensureSecureConfigPermissions(lateConfigDir, configPath)
+		if mkErr := os.MkdirAll(sennyConfigDir, configDirPerm); mkErr != nil {
+			return &fallback, fmt.Errorf("failed to create config directory: %w", mkErr)
+		}
+		if wErr := os.WriteFile(sennyConfigPath, defaultData, configFilePerm); wErr != nil {
+			return &fallback, fmt.Errorf("failed to write default config: %w", wErr)
+		}
+		if permErr := ensureSecureConfigPermissions(sennyConfigDir, sennyConfigPath); permErr != nil {
+			return &fallback, permErr
+		}
+		return &fallback, nil
+	}
+
+	permErr := ensureSecureConfigPermissions(configDir, configPath)
 
 	var cfg Config
 	if err := json.Unmarshal(content, &cfg); err != nil {
@@ -111,6 +107,32 @@ func LoadConfig() (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+// loadConfigFile tries sennyPath, then the late config as fallback.
+// Returns (dir, path, content, err). content is nil if neither file exists.
+func loadConfigFile(sennyDir, sennyPath string) (string, string, []byte, error) {
+	data, err := os.ReadFile(sennyPath)
+	if err == nil {
+		return sennyDir, sennyPath, data, nil
+	}
+	if !os.IsNotExist(err) {
+		return "", "", nil, err
+	}
+
+	lateConfigDir, err := pathutil.LateConfigDir()
+	if err != nil {
+		return "", "", nil, nil // treat as not found
+	}
+	latePath := filepath.Join(lateConfigDir, "config.json")
+	data, err = os.ReadFile(latePath)
+	if err == nil {
+		return lateConfigDir, latePath, data, nil
+	}
+	if !os.IsNotExist(err) {
+		return "", "", nil, err
+	}
+	return "", "", nil, nil // neither found
 }
 
 func ResolveOpenAISettings(cfg *Config) OpenAISettings {

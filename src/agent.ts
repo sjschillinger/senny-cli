@@ -67,7 +67,6 @@ export class Agent {
       const repair = this.repairInstruction(records);
       const summary = summarizeToolUse(records);
       if (summary) {
-        await this.session.add({ role: "assistant", content: summary });
         this.options.onEvent?.({ type: "summary", content: summary });
       }
       if (repair) {

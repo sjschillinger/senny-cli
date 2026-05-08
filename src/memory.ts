@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { pathExists, truncate } from "./util.js";
 
-const memoryFiles = ["SENNY.md", "AGENTS.md", path.join(".senny", "memory.md")];
+const memoryFiles = ["SENNY.md", "LATE.md", "AGENTS.md", path.join(".senny", "memory.md")];
 
 export async function buildMemoryContext(cwd: string): Promise<string> {
   const blocks: string[] = [];

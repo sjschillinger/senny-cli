@@ -3,7 +3,7 @@ package common
 import (
 	"context"
 	"encoding/json"
-	"late/internal/client"
+	"senny/internal/client"
 )
 
 // ToolRunner defines the functional signature for executing a single tool call.

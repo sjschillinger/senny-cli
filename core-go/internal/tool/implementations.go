@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"late/internal/common"
-	"late/internal/tool/ast"
+	"senny/internal/common"
+	"senny/internal/tool/ast"
 )
 
 // ReadFileTool reads content from a file.

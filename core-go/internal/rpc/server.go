@@ -6,15 +6,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"late/internal/assets"
-	"late/internal/client"
-	"late/internal/common"
-	appconfig "late/internal/config"
-	"late/internal/executor"
-	"late/internal/git"
-	"late/internal/mcp"
-	sessionpkg "late/internal/session"
-	"late/internal/tool"
+	"senny/internal/assets"
+	"senny/internal/client"
+	"senny/internal/common"
+	appconfig "senny/internal/config"
+	"senny/internal/executor"
+	"senny/internal/git"
+	"senny/internal/mcp"
+	sessionpkg "senny/internal/session"
+	"senny/internal/tool"
 	"os"
 	"path/filepath"
 	"sort"
@@ -333,6 +333,11 @@ func (s *Server) allowCommand(params PermissionCommandParams) error {
 	})
 }
 
+// withCWD temporarily changes the process working directory and serialises
+// callers through cwdMu for the full duration of fn. Concurrent session/run
+// goroutines will therefore execute sequentially. This is acceptable for the
+// single-user CLI; a multi-session server should pass cwd explicitly through
+// the call stack rather than relying on the process-global working directory.
 func (s *Server) withCWD(cwd string, fn func() error) error {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {
@@ -457,7 +462,7 @@ func (s *Server) run(parent context.Context, params RunParams) error {
 					func(result common.StreamResult) {
 						s.notify("session/event", map[string]any{"sessionId": params.SessionID, "type": "stream", "delta": result})
 					},
-					nil,
+					[]common.ToolMiddleware{shellApprovalMiddleware()},
 				)
 				if err != nil {
 					return err
@@ -497,6 +502,38 @@ func newLateSession(id, cwd, model string) *sessionpkg.Session {
 	enabled := map[string]bool{"read_file": true, "bash": true, "write_file": true, "target_edit": true}
 	executor.RegisterTools(sess.Registry, enabled, true)
 	return sess
+}
+
+// shellApprovalMiddleware enforces the bash analyzer allow-list before tool execution.
+// Blocked commands return an error string; commands needing confirmation return guidance.
+func shellApprovalMiddleware() common.ToolMiddleware {
+	return func(next common.ToolRunner) common.ToolRunner {
+		return func(ctx context.Context, tc client.ToolCall) (string, error) {
+			if tc.Function.Name != "bash" {
+				return next(ctx, tc)
+			}
+			var args struct {
+				Command string `json:"command"`
+			}
+			if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil || args.Command == "" {
+				return next(ctx, tc)
+			}
+			allowed, _ := tool.LoadAllAllowedCommands()
+			analyzer := &tool.BashAnalyzer{ProjectAllowedCommands: allowed}
+			analysis := analyzer.Analyze(args.Command)
+			if analysis.IsBlocked {
+				reason := "Command blocked for safety."
+				if analysis.BlockReason != nil {
+					reason = analysis.BlockReason.Error()
+				}
+				return reason, nil
+			}
+			if analysis.NeedsConfirmation {
+				return fmt.Sprintf("Command requires explicit approval before running. Use: senny allow-command %q [--scope project|global|session]", args.Command), nil
+			}
+			return next(ctx, tc)
+		}
+	}
 }
 
 func sessionDir() string {

@@ -3,7 +3,7 @@ package mcp
 import (
 	"encoding/json"
 	"fmt"
-	"late/internal/common"
+	"senny/internal/common"
 	"os"
 	"path/filepath"
 	"regexp"

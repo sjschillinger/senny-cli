@@ -27,10 +27,14 @@ export interface SennyCoreOptions {
 }
 
 export class SennyCoreClient extends EventEmitter {
-  private child?: ChildProcessWithoutNullStreams;
+  #child?: ChildProcessWithoutNullStreams;
   private nextID = 1;
   private pending = new Map<number, { resolve: (value: unknown) => void; reject: (err: Error) => void }>();
   private ready?: Promise<void>;
+
+  get pid(): number | undefined {
+    return this.#child?.pid;
+  }
 
   static async start(options: SennyCoreOptions = {}): Promise<SennyCoreClient> {
     const client = new SennyCoreClient(options);
@@ -48,18 +52,18 @@ export class SennyCoreClient extends EventEmitter {
     const command = this.options.command ?? bundled.command;
     const args = this.options.args ?? bundled.args;
     const cwd = this.options.args || this.options.command ? (this.options.cwd ?? process.cwd()) : bundled.cwd;
-    this.child = spawn(command, args, {
+    this.#child = spawn(command, args, {
       cwd,
       stdio: ["pipe", "pipe", "pipe"]
     });
-    this.child.stderr.on("data", (chunk) => this.emit("stderr", chunk.toString("utf8")));
-    this.child.on("exit", (code, signal) => this.emit("exit", { code, signal }));
+    this.#child.stderr.on("data", (chunk: Buffer) => this.emit("stderr", chunk.toString("utf8").trimEnd()));
+    this.#child.on("exit", (code, signal) => this.emit("exit", { code, signal }));
     this.ready = new Promise((resolve, reject) => {
-      this.child!.once("spawn", resolve);
-      this.child!.once("error", reject);
+      this.#child!.once("spawn", resolve);
+      this.#child!.once("error", reject);
     });
 
-    const rl = createInterface({ input: this.child.stdout });
+    const rl = createInterface({ input: this.#child.stdout });
     rl.on("line", (line) => this.handleLine(line));
     await this.ready;
   }
@@ -132,29 +136,36 @@ export class SennyCoreClient extends EventEmitter {
   }
 
   async shutdown(): Promise<void> {
-    if (!this.child) return;
+    if (!this.#child) return;
     await this.request("shutdown", {}).catch(() => undefined);
-    this.child.stdin.end();
-    this.child.kill();
+    this.#child.stdin.end();
+    this.#child.kill();
     await new Promise<void>((resolve) => {
-      if (!this.child || this.child.killed) return resolve();
-      this.child.once("exit", () => resolve());
+      if (!this.#child || this.#child.killed) return resolve();
+      this.#child.once("exit", () => resolve());
       setTimeout(resolve, 250).unref();
     });
   }
 
   request<T = unknown>(method: string, params?: unknown): Promise<T> {
-    if (!this.child) throw new Error("core process is not started");
+    if (!this.#child) throw new Error("core process is not started");
     const id = this.nextID++;
     const req: JSONRPCRequest = { jsonrpc: "2.0", id, method, params };
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject });
-      this.child!.stdin.write(`${JSON.stringify(req)}\n`);
+      this.#child!.stdin.write(`${JSON.stringify(req)}\n`);
     });
   }
 
   private handleLine(line: string): void {
-    const msg = JSON.parse(line) as JSONRPCResponse | JSONRPCNotification;
+    if (!line.trim()) return;
+    let msg: JSONRPCResponse | JSONRPCNotification;
+    try {
+      msg = JSON.parse(line) as JSONRPCResponse | JSONRPCNotification;
+    } catch {
+      this.emit("stderr", `[senny-core non-JSON stdout]: ${line}`);
+      return;
+    }
     if ("id" in msg) {
       const pending = this.pending.get(Number(msg.id));
       if (!pending) return;

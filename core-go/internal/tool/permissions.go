@@ -2,8 +2,8 @@ package tool
 
 import (
 	"encoding/json"
-	"late/internal/common"
-	"late/internal/pathutil"
+	"senny/internal/common"
+	"senny/internal/pathutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -176,14 +176,16 @@ func IsSafePath(path string) bool {
 }
 
 const (
-	localAllowedCommandsFile = ".late/allowed_commands.json"
-	localAllowedToolsFile    = ".late/allowed_tools.json"
-	commandsFileName         = "allowed_commands.json"
-	toolsFileName            = "allowed_tools.json"
-	projectApprovalTTL       = 30 * 24 * time.Hour
-	globalApprovalTTL        = 30 * 24 * time.Hour
-	sessionApprovalTTL       = 30 * time.Minute
-	sessionBaseMarker        = "__base__"
+	localAllowedCommandsFile       = ".senny/allowed_commands.json"
+	localAllowedCommandsFileLegacy = ".late/allowed_commands.json"
+	localAllowedToolsFile          = ".senny/allowed_tools.json"
+	localAllowedToolsFileLegacy    = ".late/allowed_tools.json"
+	commandsFileName               = "allowed_commands.json"
+	toolsFileName                  = "allowed_tools.json"
+	projectApprovalTTL             = 30 * 24 * time.Hour
+	globalApprovalTTL              = 30 * 24 * time.Hour
+	sessionApprovalTTL             = 30 * time.Minute
+	sessionBaseMarker              = "__base__"
 )
 
 type persistedCommandEntry struct {
@@ -300,11 +302,26 @@ func SaveSessionAllowedTool(name string) {
 }
 
 func getGlobalConfigPath(fileName string) string {
-	configDir, err := pathutil.LateConfigDir()
+	// Prefer senny config dir; fall back to late config dir for migration.
+	if sennyDir, err := pathutil.SennyConfigDir(); err == nil {
+		p := filepath.Join(sennyDir, fileName)
+		if _, statErr := os.Stat(p); statErr == nil {
+			return p
+		}
+	}
+	lateDir, err := pathutil.LateConfigDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(configDir, fileName)
+	return filepath.Join(lateDir, fileName)
+}
+
+func getGlobalWritePath(fileName string) string {
+	sennyDir, err := pathutil.SennyConfigDir()
+	if err != nil {
+		return getGlobalConfigPath(fileName)
+	}
+	return filepath.Join(sennyDir, fileName)
 }
 
 func getFilePath(localPath string, fileName string, global bool) string {
@@ -359,17 +376,29 @@ func loadPersistedToolsFile(path string) (persistedToolsFile, error) {
 // LoadAllowedCommands loads allowed commands from either local or global allow-list.
 func LoadAllowedCommands(global bool) (map[string]map[string]bool, error) {
 	allowed := make(map[string]map[string]bool)
-	path := getFilePath(localAllowedCommandsFile, commandsFileName, global)
-	if path == "" {
-		return allowed, nil
+
+	paths := []string{getFilePath(localAllowedCommandsFile, commandsFileName, global)}
+	if !global {
+		paths = append(paths, localAllowedCommandsFileLegacy)
 	}
 
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return allowed, nil
+	var data []byte
+	var readErr error
+	for _, path := range paths {
+		if path == "" {
+			continue
 		}
-		return nil, err
+		data, readErr = os.ReadFile(path)
+		if readErr == nil {
+			break
+		}
+		if !os.IsNotExist(readErr) {
+			return nil, readErr
+		}
+	}
+	if readErr != nil {
+		// all paths were not-found
+		return allowed, nil
 	}
 
 	// Backward-compatible format: map[string][]string
@@ -460,7 +489,12 @@ func SaveAllowedCommand(command string, global bool) error {
 		return nil
 	}
 
-	path := getFilePath(localAllowedCommandsFile, commandsFileName, global)
+	var path string
+	if global {
+		path = getGlobalWritePath(commandsFileName)
+	} else {
+		path = localAllowedCommandsFile
+	}
 	existingFile, err := loadPersistedCommandsFile(path)
 	if err != nil {
 		return err
@@ -528,17 +562,28 @@ func SaveAllowedCommand(command string, global bool) error {
 // LoadAllowedTools loads the list of tools that are always allowed (local or global).
 func LoadAllowedTools(global bool) (map[string]bool, error) {
 	allowed := make(map[string]bool)
-	path := getFilePath(localAllowedToolsFile, toolsFileName, global)
-	if path == "" {
-		return allowed, nil
+
+	paths := []string{getFilePath(localAllowedToolsFile, toolsFileName, global)}
+	if !global {
+		paths = append(paths, localAllowedToolsFileLegacy)
 	}
 
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return allowed, nil
+	var data []byte
+	var readErr error
+	for _, path := range paths {
+		if path == "" {
+			continue
 		}
-		return nil, err
+		data, readErr = os.ReadFile(path)
+		if readErr == nil {
+			break
+		}
+		if !os.IsNotExist(readErr) {
+			return nil, readErr
+		}
+	}
+	if readErr != nil {
+		return allowed, nil
 	}
 
 	// Backward-compatible format: []string
@@ -601,7 +646,12 @@ func LoadAllAllowedTools() (map[string]bool, error) {
 
 // SaveAllowedTool adds a tool name to the specified always-allowed list (local or global).
 func SaveAllowedTool(name string, global bool) error {
-	path := getFilePath(localAllowedToolsFile, toolsFileName, global)
+	var path string
+	if global {
+		path = getGlobalWritePath(toolsFileName)
+	} else {
+		path = localAllowedToolsFile
+	}
 	existingFile, err := loadPersistedToolsFile(path)
 	if err != nil {
 		return err

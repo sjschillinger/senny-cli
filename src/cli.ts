@@ -307,20 +307,52 @@ async function main(): Promise<void> {
     await runInteractive(agent);
   } else if (args.core || !args.ts) {
     const client = await SennyCoreClient.start({ cwd: args.cwd });
+    client.on("stderr", (line: string) => process.stderr.write(`[core] ${line}\n`));
     let finishCoreRun!: () => void;
-    const coreDone = new Promise<void>((resolve) => {
-      finishCoreRun = resolve;
-    });
+    const coreDone = new Promise<void>((resolve) => { finishCoreRun = resolve; });
+    const WATCHDOG_MS = 120_000;
+    let watchdogTimer: ReturnType<typeof setTimeout> | undefined;
+    const resetWatchdog = () => {
+      if (watchdogTimer) clearTimeout(watchdogTimer);
+      watchdogTimer = setTimeout(() => {
+        process.stderr.write("[senny-core] no response for 2 minutes — aborting\n");
+        finishCoreRun();
+      }, WATCHDOG_MS);
+    };
+    const clearWatchdog = () => { if (watchdogTimer) clearTimeout(watchdogTimer); };
+    let didStream = false;
     client.on("event", (event) => {
-      if (event.type === "done" && typeof event.content === "string") process.stdout.write(`${event.content}\n`);
-      if (event.type === "done" || event.type === "error" || event.type === "cancelled") finishCoreRun();
-      else console.error(`[core] ${event.type}`);
+      resetWatchdog();
+      if (event.type === "stream") {
+        const text = event.delta.content;
+        if (text) { process.stdout.write(text); didStream = true; }
+      } else if (event.type === "done") {
+        if (!didStream) process.stdout.write(event.content);
+        process.stdout.write("\n");
+        clearWatchdog();
+        finishCoreRun();
+      } else if (event.type === "error") {
+        console.error(`[core error] ${event.message}`);
+        clearWatchdog();
+        finishCoreRun();
+      } else if (event.type === "cancelled") {
+        clearWatchdog();
+        finishCoreRun();
+      }
     });
+    let coreSession: Awaited<ReturnType<typeof client.createSession>>;
+    const onSigint = () => {
+      void coreSession?.cancel().catch(() => undefined);
+    };
+    process.once("SIGINT", onSigint);
     try {
-      const session = await client.createSession({ cwd: args.cwd });
-      await session.run(args.prompt);
+      coreSession = await client.createSession({ cwd: args.cwd });
+      resetWatchdog();
+      await coreSession.run(args.prompt);
       await coreDone;
     } finally {
+      clearWatchdog();
+      process.off("SIGINT", onSigint);
       await client.shutdown();
     }
   } else {

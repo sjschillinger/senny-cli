@@ -1,7 +1,7 @@
 package tool
 
 import (
-	"late/internal/common"
+	"senny/internal/common"
 )
 
 // Tool represents a primitive tool that the agent can execute.

@@ -6,7 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"late/internal/common"
+	"senny/internal/common"
 	"path/filepath"
 	"strings"
 	"testing"

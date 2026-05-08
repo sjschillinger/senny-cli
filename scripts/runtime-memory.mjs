@@ -9,7 +9,7 @@ const client = await SennyCoreClient.start({ cwd: process.cwd() });
 try {
   await new Promise((resolve) => setTimeout(resolve, 250));
   const nodeRSS = process.memoryUsage().rss;
-  const corePID = client.child?.pid;
+  const corePID = client.pid;
   const coreRSS = corePID ? await rssForPID(corePID) : 0;
   const runtime = process.versions.bun ? `bun ${process.versions.bun}` : `node ${process.version}`;
   const result = {

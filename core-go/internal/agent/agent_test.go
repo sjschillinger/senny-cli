@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"late/internal/client"
-	"late/internal/orchestrator"
-	"late/internal/session"
+	"senny/internal/client"
+	"senny/internal/orchestrator"
+	"senny/internal/session"
 )
 
 // TestNewSubagentOrchestratorWithGemmaThinking verifies that the gemmaThinking

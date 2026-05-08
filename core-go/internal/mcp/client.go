@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"late/internal/tool"
+	"senny/internal/tool"
 	"os"
 	"os/exec"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"late/internal/common"
+	"senny/internal/common"
 )
 
 // Client manages MCP connections and tools.

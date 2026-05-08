@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"late/internal/common"
+	"senny/internal/common"
 
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textarea"

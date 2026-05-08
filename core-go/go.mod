@@ -1,4 +1,4 @@
-module late
+module senny
 
 go 1.26
 

@@ -133,9 +133,15 @@ async function loadAllAllowedTools(cwd: string): Promise<Set<string>> {
   cleanupSessionApprovals();
   const allowed = new Set<string>(sessionTools.keys());
   for (const scope of ["global", "project"] as const) {
-    const file = await loadToolsFile(toolPath(scope, cwd));
-    for (const [name, entry] of Object.entries(file.entries ?? {})) {
-      if (isEntryValid(entry.expires_at, entry.version ?? file.version)) allowed.add(name);
+    // Read from canonical .senny/ path; also merge legacy .late/ entries for migration compat.
+    const paths = scope === "project"
+      ? [toolPath(scope, cwd), toolPathLegacy(scope, cwd)]
+      : [toolPath(scope, cwd)];
+    for (const file of paths) {
+      const parsed = await loadToolsFile(file);
+      for (const [name, entry] of Object.entries(parsed.entries ?? {})) {
+        if (isEntryValid(entry.expires_at, entry.version ?? parsed.version)) allowed.add(name);
+      }
     }
   }
   return allowed;
@@ -146,12 +152,18 @@ async function loadAllAllowedCommands(cwd: string): Promise<Map<string, Set<stri
   const allowed = new Map<string, Set<string>>();
   for (const [cmd, entry] of sessionCommands) allowed.set(cmd, new Set(entry.flags));
   for (const scope of ["global", "project"] as const) {
-    const file = await loadCommandsFile(commandPath(scope, cwd));
-    for (const [cmd, entry] of Object.entries(file.entries ?? {})) {
-      if (!isEntryValid(entry.expires_at, entry.version ?? file.version)) continue;
-      const flags = allowed.get(cmd) ?? new Set<string>();
-      entry.flags.forEach((flag) => flags.add(flag));
-      allowed.set(cmd, flags);
+    // Read from canonical .senny/ path; also merge legacy .late/ entries for migration compat.
+    const paths = scope === "project"
+      ? [commandPath(scope, cwd), commandPathLegacy(scope, cwd)]
+      : [commandPath(scope, cwd)];
+    for (const filePath of paths) {
+      const file = await loadCommandsFile(filePath);
+      for (const [cmd, entry] of Object.entries(file.entries ?? {})) {
+        if (!isEntryValid(entry.expires_at, entry.version ?? file.version)) continue;
+        const flags = allowed.get(cmd) ?? new Set<string>();
+        entry.flags.forEach((flag) => flags.add(flag));
+        allowed.set(cmd, flags);
+      }
     }
   }
   return allowed;
@@ -171,11 +183,19 @@ function isEntryValid(expiresAt?: string, entryVersion?: string): boolean {
 }
 
 function toolPath(scope: "project" | "global", cwd: string): string {
-  return scope === "global" ? path.join(configHome(), "allowed_tools.json") : path.join(cwd, ".late", "allowed_tools.json");
+  return scope === "global" ? path.join(configHome(), "allowed_tools.json") : path.join(cwd, ".senny", "allowed_tools.json");
+}
+
+function toolPathLegacy(_scope: "project", cwd: string): string {
+  return path.join(cwd, ".late", "allowed_tools.json");
 }
 
 function commandPath(scope: "project" | "global", cwd: string): string {
-  return scope === "global" ? path.join(configHome(), "allowed_commands.json") : path.join(cwd, ".late", "allowed_commands.json");
+  return scope === "global" ? path.join(configHome(), "allowed_commands.json") : path.join(cwd, ".senny", "allowed_commands.json");
+}
+
+function commandPathLegacy(_scope: "project", cwd: string): string {
+  return path.join(cwd, ".late", "allowed_commands.json");
 }
 
 async function loadToolsFile(file: string): Promise<PersistedToolsFile> {

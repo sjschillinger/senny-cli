@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"late/internal/mcp"
+	"senny/internal/mcp"
 )
 
 func main() {

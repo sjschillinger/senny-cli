@@ -6,7 +6,7 @@ import (
 	"os"
 	"os/signal"
 
-	"late/internal/rpc"
+	"senny/internal/rpc"
 )
 
 func main() {

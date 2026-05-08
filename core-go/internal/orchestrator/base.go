@@ -2,10 +2,10 @@ package orchestrator
 
 import (
 	"context"
-	"late/internal/client"
-	"late/internal/common"
-	"late/internal/executor"
-	"late/internal/session"
+	"senny/internal/client"
+	"senny/internal/common"
+	"senny/internal/executor"
+	"senny/internal/session"
 	"sync"
 )
 

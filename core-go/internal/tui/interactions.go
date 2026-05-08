@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"late/internal/client"
-	"late/internal/common"
-	"late/internal/tool"
+	"senny/internal/client"
+	"senny/internal/common"
+	"senny/internal/tool"
 	"runtime"
 )
 

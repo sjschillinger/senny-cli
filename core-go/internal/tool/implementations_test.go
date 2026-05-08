@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"late/internal/common"
+	"senny/internal/common"
 	"os"
 	"path/filepath"
 	"runtime"

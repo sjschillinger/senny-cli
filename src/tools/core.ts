@@ -151,8 +151,8 @@ export const bashTool: Tool = {
 
 async function runShell(command: string, ctx: ToolContext): Promise<string> {
   return await new Promise((resolve, reject) => {
-    const shell = process.platform === "win32" ? "powershell.exe" : "/bin/zsh";
-    const shellArgs = process.platform === "win32" ? ["-NoProfile", "-Command", command] : ["-lc", command];
+    const shell = process.platform === "win32" ? "powershell.exe" : (process.env.SHELL ?? "/bin/sh");
+    const shellArgs = process.platform === "win32" ? ["-NoProfile", "-Command", command] : ["-c", command];
     const child = spawn(shell, shellArgs, { cwd: ctx.cwd, stdio: ["ignore", "pipe", "pipe"] });
     let output = "";
     const append = (chunk: Buffer) => {

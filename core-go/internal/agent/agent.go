@@ -3,13 +3,13 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
-	"late/internal/assets"
-	"late/internal/client"
-	"late/internal/common"
-	"late/internal/executor"
-	"late/internal/orchestrator"
-	"late/internal/session"
-	"late/internal/tui"
+	"senny/internal/assets"
+	"senny/internal/client"
+	"senny/internal/common"
+	"senny/internal/executor"
+	"senny/internal/orchestrator"
+	"senny/internal/session"
+	"senny/internal/tui"
 	"os"
 )
 

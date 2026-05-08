@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"late/internal/client"
-	"late/internal/common"
-	"late/internal/pathutil"
-	"late/internal/session"
-	"late/internal/skill"
-	"late/internal/tool"
+	"senny/internal/client"
+	"senny/internal/common"
+	"senny/internal/pathutil"
+	"senny/internal/session"
+	"senny/internal/skill"
+	"senny/internal/tool"
 )
 
 // --- Stream Accumulator ---

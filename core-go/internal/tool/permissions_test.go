@@ -2,7 +2,7 @@ package tool
 
 import (
 	"encoding/json"
-	"late/internal/common"
+	"senny/internal/common"
 	"os"
 	"path/filepath"
 	"testing"

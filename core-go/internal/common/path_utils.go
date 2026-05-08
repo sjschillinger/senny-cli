@@ -1,7 +1,7 @@
 package common
 
 import (
-	"late/internal/pathutil"
+	"senny/internal/pathutil"
 )
 
 func LateConfigDir() (string, error) {
@@ -10,6 +10,14 @@ func LateConfigDir() (string, error) {
 
 func LateSessionDir() (string, error) {
 	return pathutil.LateSessionDir()
+}
+
+func SennyConfigDir() (string, error) {
+	return pathutil.SennyConfigDir()
+}
+
+func SennySessionDir() (string, error) {
+	return pathutil.SennySessionDir()
 }
 
 func SennyProjectMCPConfigPath() string {

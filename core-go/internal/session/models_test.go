@@ -1,7 +1,7 @@
 package session
 
 import (
-	"late/internal/client"
+	"senny/internal/client"
 	"os"
 	"path/filepath"
 	"testing"
