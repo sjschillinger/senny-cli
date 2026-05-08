@@ -104,3 +104,11 @@ npm run check
 ```
 
 The check script builds the project, runs the test suite, verifies CLI help, and performs an npm package dry run.
+
+## Runtime Benchmarks
+
+```bash
+npm run bench:runtime
+```
+
+This measures the TypeScript wrapper and native Go core under Node and Bun. See `docs/runtime.md` for details.

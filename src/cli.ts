@@ -57,6 +57,12 @@ function printHelp(): void {
   senny worktree remove <path>         Remove a worktree
   senny worktree active                Show active worktree
   senny mcp list                       List configured MCP tools
+  senny core config                    Show native core config
+  senny core mcp                       Show native core MCP servers
+  senny core tools [--planning]         Show native core tools
+  senny core permissions               Show native core approvals
+  senny core allow-tool <name> [scope]  Approve a native core tool
+  senny core allow-command <cmd> [scope] Approve a native core command
 
 Flags:
   --cwd <path>   Project root to operate in
@@ -179,6 +185,67 @@ async function handleMCP(args: Args): Promise<boolean> {
   return true;
 }
 
+async function withCore<T>(args: Args, fn: (client: SennyCoreClient) => Promise<T>): Promise<T> {
+  const client = await SennyCoreClient.start({ cwd: args.cwd });
+  try {
+    return await fn(client);
+  } finally {
+    await client.shutdown();
+  }
+}
+
+function printJSON(value: unknown): void {
+  console.log(JSON.stringify(value, null, 2));
+}
+
+async function handleCore(args: Args): Promise<boolean> {
+  if (args.command !== "core") return false;
+  const sub = args.rest[0] ?? "";
+  if (sub === "config") {
+    await withCore(args, async (client) => printJSON(await client.getConfig()));
+    return true;
+  }
+  if (sub === "mcp") {
+    await withCore(args, async (client) => printJSON(await client.listMCP(args.cwd)));
+    return true;
+  }
+  if (sub === "tools") {
+    const planning = args.rest.includes("--planning");
+    await withCore(args, async (client) => printJSON(await client.listTools({ cwd: args.cwd, planning })));
+    return true;
+  }
+  if (sub === "permissions") {
+    await withCore(args, async (client) => printJSON(await client.listPermissions(args.cwd)));
+    return true;
+  }
+  if (sub === "allow-tool") {
+    const name = args.rest[1];
+    const scope = args.rest[2] ?? "project";
+    if (!name) throw new Error("core allow-tool requires a tool name");
+    if (!["session", "project", "global"].includes(scope)) throw new Error("scope must be session, project, or global");
+    await withCore(args, async (client) => {
+      await client.allowTool(name, scope as "session" | "project" | "global", args.cwd);
+      console.log(`Approved tool ${name} for ${scope} scope.`);
+    });
+    return true;
+  }
+  if (sub === "allow-command") {
+    const scopeCandidate = args.rest.at(-1) ?? "";
+    const hasExplicitScope = ["session", "project", "global"].includes(scopeCandidate);
+    const scope = hasExplicitScope ? scopeCandidate : "project";
+    const commandParts = args.rest.slice(1, hasExplicitScope ? -1 : undefined);
+    const command = commandParts.join(" ").trim();
+    if (!command) throw new Error("core allow-command requires a command");
+    await withCore(args, async (client) => {
+      await client.allowCommand(command, scope as "session" | "project" | "global", args.cwd);
+      console.log(`Approved command ${command} for ${scope} scope.`);
+    });
+    return true;
+  }
+  printHelp();
+  return true;
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
@@ -188,6 +255,7 @@ async function main(): Promise<void> {
   if (await handleSession(args)) return;
   if (await handleWorktree(args)) return;
   if (await handleMCP(args)) return;
+  if (await handleCore(args)) return;
 
   if (!args.prompt) {
     const agent = await makeAgent(args);

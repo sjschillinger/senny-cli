@@ -12,7 +12,12 @@
     "test": "npm run build && node --test test/*.test.mjs",
     "check": "npm run test && node dist/cli.js --help && (cd core-go && go test ./... && go build ./cmd/late ./cmd/mcp-run ./cmd/senny-core) && npm pack --dry-run",
     "start": "node dist/cli.js",
+    "start:bun": "bun dist/cli.js",
     "dev": "node --loader ts-node/esm src/cli.ts",
+    "dev:bun": "bun src/cli.ts",
+    "bench:runtime:node": "node scripts/runtime-memory.mjs",
+    "bench:runtime:bun": "bun scripts/runtime-memory.mjs",
+    "bench:runtime": "npm run bench:runtime:node && npm run bench:runtime:bun",
     "clean": "rm -rf dist *.tgz"
   },
   "files": [
@@ -20,7 +25,8 @@
     "core-go/bin",
     "README.md",
     "LICENSE",
-    "docs"
+    "docs",
+    "scripts/runtime-memory.mjs"
   ],
   "engines": {
     "node": ">=20"
