@@ -49,7 +49,8 @@ Run `senny --help` for flags.
 ## Commands
 
 ```bash
-senny                         # interactive mode
+senny                         # native Go TUI
+senny --ts                    # TypeScript readline mode
 senny "make a focused change"  # one-shot through native Go core
 senny --ts "prototype path"     # one-shot through TypeScript prototype fallback
 senny session list
@@ -66,6 +67,8 @@ senny core tools --planning
 ```
 
 Mutating tools prompt before running in interactive use. Use `--unsafe` or `--yes` only when you intentionally approve those changes.
+
+The default no-argument interactive path launches the native Go TUI for Late-style terminal behavior. The TypeScript readline loop remains available with `senny --ts`.
 
 ## MCP
 

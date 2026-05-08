@@ -111,3 +111,18 @@ export interface CorePermissions {
 }
 
 export type PermissionScope = "session" | "project" | "global";
+
+export type ApprovalScope = PermissionScope | "once";
+
+export interface ApprovalRequest {
+  id: string;
+  sessionId: string;
+  kind: "command";
+  command: string;
+  reason?: string;
+}
+
+export interface ApprovalResponse {
+  approved: boolean;
+  scope?: ApprovalScope;
+}

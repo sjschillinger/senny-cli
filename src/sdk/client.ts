@@ -4,6 +4,8 @@ import { EventEmitter } from "node:events";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
+  ApprovalRequest,
+  ApprovalResponse,
   CoreEvent,
   CreateSessionResult,
   InitializeResult,
@@ -24,6 +26,7 @@ export interface SennyCoreOptions {
   command?: string;
   args?: string[];
   cwd?: string;
+  approvalHandler?: (request: ApprovalRequest) => Promise<ApprovalResponse>;
 }
 
 export class SennyCoreClient extends EventEmitter {
@@ -107,6 +110,15 @@ export class SennyCoreClient extends EventEmitter {
     return result.allowed;
   }
 
+  async respondApproval(id: string, response: ApprovalResponse): Promise<boolean> {
+    const result = await this.request<{ ok: boolean }>("approval/respond", {
+      id,
+      approved: response.approved,
+      scope: response.scope ?? "once"
+    });
+    return result.ok;
+  }
+
   async listSessions(): Promise<SessionMeta[]> {
     return await this.request<SessionMeta[]>("session/list", {});
   }
@@ -175,7 +187,22 @@ export class SennyCoreClient extends EventEmitter {
       return;
     }
     if (msg.method === "session/event") this.emit("event", msg.params as CoreEvent);
+    if (msg.method === "approval/request") void this.handleApproval(msg.params as ApprovalRequest);
     this.emit("notification", msg);
+  }
+
+  private async handleApproval(request: ApprovalRequest): Promise<void> {
+    this.emit("approval", request);
+    const handler = this.options.approvalHandler;
+    if (!handler) {
+      await this.respondApproval(request.id, { approved: false, scope: "once" }).catch(() => undefined);
+      return;
+    }
+    try {
+      await this.respondApproval(request.id, await handler(request));
+    } catch {
+      await this.respondApproval(request.id, { approved: false, scope: "once" }).catch(() => undefined);
+    }
   }
 }
 

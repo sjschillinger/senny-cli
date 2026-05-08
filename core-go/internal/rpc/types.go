@@ -140,3 +140,17 @@ type PermissionCommandParams struct {
 	Command string `json:"command"`
 	Scope   string `json:"scope,omitempty"`
 }
+
+type ApprovalRequest struct {
+	ID        string `json:"id"`
+	SessionID string `json:"sessionId"`
+	Kind      string `json:"kind"`
+	Command   string `json:"command"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+type ApprovalRespondParams struct {
+	ID       string `json:"id"`
+	Approved bool   `json:"approved"`
+	Scope    string `json:"scope,omitempty"`
+}

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { SennyCoreClient } from "../dist/sdk/index.js";
@@ -61,9 +61,65 @@ test("SennyCoreClient exposes native config, MCP, tools, and permissions", { tim
   }
 });
 
+test("SennyCoreClient responds to core approval requests", { timeout: 5000 }, async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "senny-core-approval-"));
+  const logPath = path.join(cwd, "approval.json");
+  const fakeCore = path.join(cwd, "fake-core.mjs");
+  await writeFile(fakeCore, `
+    import readline from "node:readline";
+    import { writeFile } from "node:fs/promises";
+    const logPath = ${JSON.stringify(logPath)};
+    const rl = readline.createInterface({ input: process.stdin });
+    function send(msg) { process.stdout.write(JSON.stringify(msg) + "\\n"); }
+    rl.on("line", async (line) => {
+      const req = JSON.parse(line);
+      if (req.method === "initialize") send({ jsonrpc: "2.0", id: req.id, result: { protocolVersion: "2026-05-08", serverName: "fake", serverVersion: "0", capabilities: ["approvals"] } });
+      else if (req.method === "session/create") send({ jsonrpc: "2.0", id: req.id, result: { sessionId: "fake-session", cwd: process.cwd() } });
+      else if (req.method === "session/run") {
+        send({ jsonrpc: "2.0", id: req.id, result: { sessionId: "fake-session", status: "started" } });
+        send({ jsonrpc: "2.0", method: "approval/request", params: { id: "approval-1", sessionId: "fake-session", kind: "command", command: "npm test", reason: "needs approval" } });
+      } else if (req.method === "approval/respond") {
+        await writeFile(logPath, JSON.stringify(req.params));
+        send({ jsonrpc: "2.0", id: req.id, result: { ok: true } });
+        send({ jsonrpc: "2.0", method: "session/event", params: { sessionId: "fake-session", type: "done", content: "ok" } });
+      } else if (req.method === "shutdown") {
+        send({ jsonrpc: "2.0", id: req.id, result: { status: "ok" } });
+        process.exit(0);
+      }
+    });
+  `);
+
+  const client = await SennyCoreClient.start({
+    command: process.execPath,
+    args: [fakeCore],
+    cwd,
+    approvalHandler: async (request) => {
+      assert.equal(request.command, "npm test");
+      return { approved: true, scope: "project" };
+    }
+  });
+  try {
+    const session = await client.createSession({ cwd });
+    await session.run("trigger approval");
+    await waitFor(async () => {
+      try {
+        await readFile(logPath, "utf8");
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    const logged = JSON.parse(await readFile(logPath, "utf8"));
+    assert.deepEqual(logged, { id: "approval-1", approved: true, scope: "project" });
+  } finally {
+    await client.shutdown().catch(() => {});
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 async function waitFor(predicate) {
   const started = Date.now();
-  while (!predicate()) {
+  while (!(await predicate())) {
     if (Date.now() - started > 2000) throw new Error("timed out waiting for core event");
     await new Promise((resolve) => setTimeout(resolve, 25));
   }

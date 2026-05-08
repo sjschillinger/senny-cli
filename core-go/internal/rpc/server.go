@@ -27,9 +27,17 @@ type Server struct {
 	in  io.Reader
 	out io.Writer
 
-	mu       sync.Mutex
-	cwdMu    sync.Mutex
-	sessions map[string]*Session
+	mu             sync.Mutex
+	cwdMu          sync.Mutex
+	approvalMu     sync.Mutex
+	nextApprovalID int64
+	approvals      map[string]chan approvalDecision
+	sessions       map[string]*Session
+}
+
+type approvalDecision struct {
+	Approved bool
+	Scope    string
 }
 
 type Session struct {
@@ -44,7 +52,7 @@ type Session struct {
 }
 
 func NewServer(in io.Reader, out io.Writer) *Server {
-	return &Server{in: in, out: out, sessions: make(map[string]*Session)}
+	return &Server{in: in, out: out, sessions: make(map[string]*Session), approvals: make(map[string]chan approvalDecision)}
 }
 
 func (s *Server) Serve(ctx context.Context) error {
@@ -73,7 +81,7 @@ func (s *Server) handle(ctx context.Context, req Request) {
 			ProtocolVersion: "2026-05-08",
 			ServerName:      "senny-core",
 			ServerVersion:   "0.1.0",
-			Capabilities:    []string{"sessions", "run", "cancel", "events", "config", "mcp", "tools", "permissions"},
+			Capabilities:    []string{"sessions", "run", "cancel", "events", "config", "mcp", "tools", "permissions", "approvals"},
 		}})
 	case "config/get":
 		s.write(Response{JSONRPC: "2.0", ID: req.ID, Result: s.configResult()})
@@ -135,6 +143,17 @@ func (s *Server) handle(ctx context.Context, req Request) {
 			return
 		}
 		s.write(Response{JSONRPC: "2.0", ID: req.ID, Result: map[string]bool{"allowed": true}})
+	case "approval/respond":
+		var params ApprovalRespondParams
+		if err := decode(req.Params, &params); err != nil {
+			s.writeErr(req.ID, -32602, err)
+			return
+		}
+		if err := s.respondApproval(params); err != nil {
+			s.writeErr(req.ID, -32000, err)
+			return
+		}
+		s.write(Response{JSONRPC: "2.0", ID: req.ID, Result: map[string]bool{"ok": true}})
 	case "session/create":
 		var params CreateSessionParams
 		if err := decode(req.Params, &params); err != nil {
@@ -462,7 +481,7 @@ func (s *Server) run(parent context.Context, params RunParams) error {
 					func(result common.StreamResult) {
 						s.notify("session/event", map[string]any{"sessionId": params.SessionID, "type": "stream", "delta": result})
 					},
-					[]common.ToolMiddleware{shellApprovalMiddleware()},
+					[]common.ToolMiddleware{s.shellApprovalMiddleware(params.SessionID)},
 				)
 				if err != nil {
 					return err
@@ -505,8 +524,8 @@ func newLateSession(id, cwd, model string) *sessionpkg.Session {
 }
 
 // shellApprovalMiddleware enforces the bash analyzer allow-list before tool execution.
-// Blocked commands return an error string; commands needing confirmation return guidance.
-func shellApprovalMiddleware() common.ToolMiddleware {
+// Blocked commands return an error string; commands needing confirmation request live client approval.
+func (s *Server) shellApprovalMiddleware(sessionID string) common.ToolMiddleware {
 	return func(next common.ToolRunner) common.ToolRunner {
 		return func(ctx context.Context, tc client.ToolCall) (string, error) {
 			if tc.Function.Name != "bash" {
@@ -529,11 +548,84 @@ func shellApprovalMiddleware() common.ToolMiddleware {
 				return reason, nil
 			}
 			if analysis.NeedsConfirmation {
-				return fmt.Sprintf("Command requires explicit approval before running. Use: senny core allow-command %q [project|global|session]", args.Command), nil
+				decision, err := s.requestApproval(ctx, ApprovalRequest{
+					SessionID: sessionID,
+					Kind:      "command",
+					Command:   args.Command,
+					Reason:    "Command requires explicit approval before running.",
+				})
+				if err != nil {
+					return fmt.Sprintf("Command approval failed: %v", err), nil
+				}
+				if !decision.Approved {
+					return "Command denied by user.", nil
+				}
+				switch decision.Scope {
+				case "session":
+					tool.SaveSessionAllowedCommand(args.Command)
+				case "project":
+					if err := tool.SaveAllowedCommand(args.Command, false); err != nil {
+						return fmt.Sprintf("Command approval failed: %v", err), nil
+					}
+				case "global":
+					if err := tool.SaveAllowedCommand(args.Command, true); err != nil {
+						return fmt.Sprintf("Command approval failed: %v", err), nil
+					}
+				case "", "once":
+				default:
+					return fmt.Sprintf("Unknown approval scope: %s", decision.Scope), nil
+				}
 			}
 			return next(ctx, tc)
 		}
 	}
+}
+
+func (s *Server) requestApproval(ctx context.Context, req ApprovalRequest) (approvalDecision, error) {
+	s.approvalMu.Lock()
+	s.nextApprovalID++
+	req.ID = fmt.Sprintf("approval-%d", s.nextApprovalID)
+	ch := make(chan approvalDecision, 1)
+	s.approvals[req.ID] = ch
+	s.approvalMu.Unlock()
+
+	defer func() {
+		s.approvalMu.Lock()
+		delete(s.approvals, req.ID)
+		s.approvalMu.Unlock()
+	}()
+
+	s.notify("approval/request", req)
+	select {
+	case decision := <-ch:
+		return decision, nil
+	case <-ctx.Done():
+		return approvalDecision{}, ctx.Err()
+	}
+}
+
+func (s *Server) respondApproval(params ApprovalRespondParams) error {
+	if strings.TrimSpace(params.ID) == "" {
+		return fmt.Errorf("approval id is required")
+	}
+	scope := strings.TrimSpace(params.Scope)
+	if scope == "" {
+		scope = "once"
+	}
+	switch scope {
+	case "once", "session", "project", "global":
+	default:
+		return fmt.Errorf("unknown approval scope: %s", scope)
+	}
+
+	s.approvalMu.Lock()
+	ch := s.approvals[params.ID]
+	s.approvalMu.Unlock()
+	if ch == nil {
+		return fmt.Errorf("approval not found: %s", params.ID)
+	}
+	ch <- approvalDecision{Approved: params.Approved, Scope: scope}
+	return nil
 }
 
 func sessionDir() string {

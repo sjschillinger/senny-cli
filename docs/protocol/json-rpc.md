@@ -87,6 +87,20 @@ Approves a shell command pattern in `session`, `project`, or `global` scope.
 }
 ```
 
+### `approval/respond`
+
+Responds to a live approval request emitted by the native core.
+
+```json
+{
+  "id": "approval-1",
+  "approved": true,
+  "scope": "once"
+}
+```
+
+`scope` may be `once`, `session`, `project`, or `global`.
+
 ### `session/run`
 
 Starts a run for a session. Streamed events arrive as `session/event` notifications.
@@ -139,5 +153,19 @@ Requests graceful shutdown.
   "sessionId": "session-...",
   "type": "turn_start",
   "turn": 1
+}
+```
+
+### `approval/request`
+
+Sent by the native core when a tool needs live user approval.
+
+```json
+{
+  "id": "approval-1",
+  "sessionId": "session-...",
+  "kind": "command",
+  "command": "npm test",
+  "reason": "Command requires explicit approval before running."
 }
 ```

@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 import path from "node:path";
 import { promises as fs } from "node:fs";
+import { spawn } from "node:child_process";
+import readline from "node:readline/promises";
+import { stdin as input, stdout as output } from "node:process";
+import { fileURLToPath } from "node:url";
 import { loadConfig } from "./config.js";
 import { OpenAICompatClient } from "./client.js";
 import { Agent } from "./agent.js";
@@ -12,6 +16,7 @@ import { ToolRegistry } from "./tools/registry.js";
 import { MCPManager } from "./mcp.js";
 import { defaultSkillDirs, discoverSkills, registerActivateSkillTool } from "./skills.js";
 import { SennyCoreClient } from "./sdk/index.js";
+import type { ApprovalRequest, ApprovalResponse } from "./sdk/protocol.js";
 
 let lastMCPManager: MCPManager | undefined;
 
@@ -48,7 +53,8 @@ function parseArgs(argv: string[]): Args {
 
 function printHelp(): void {
   console.log(`Usage:
-  senny [flags]                      Start interactive mode
+  senny [flags]                      Start native Go TUI
+  senny --ts                         Start TypeScript readline mode
   senny [flags] "<prompt>"            Run one prompt
   senny session list                  List saved sessions
   senny session load <id-prefix>       Resume a session interactively
@@ -71,7 +77,7 @@ Flags:
   --unsafe       Allow mutating tools without prompting
   -y, --yes      Approve mutating tools when prompted by the agent
   --core         Route one-shot prompt through native Go core
-  --ts           Route one-shot prompt through TypeScript prototype
+  --ts           Use TypeScript readline/prototype path
   --help         Show help
 
 Environment:
@@ -290,6 +296,40 @@ async function handleCore(args: Args): Promise<boolean> {
   return true;
 }
 
+function bundledBinaryPath(name: string): string {
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  return path.join(root, "core-go", "bin", process.platform === "win32" ? `${name}.exe` : name);
+}
+
+async function runNativeTUI(args: Args): Promise<void> {
+  const child = spawn(bundledBinaryPath("senny-late"), [], {
+    cwd: args.cwd,
+    stdio: "inherit"
+  });
+  const code = await new Promise<number | null>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", resolve);
+  });
+  if (code && code !== 0) throw new Error(`native TUI exited with code ${code}`);
+}
+
+async function approveCoreCommandInTerminal(request: ApprovalRequest, args: Args): Promise<ApprovalResponse> {
+  if (args.yes || args.unsafe) return { approved: true, scope: "once" };
+  const rl = readline.createInterface({ input, output });
+  try {
+    console.error(`\nCommand approval required: ${request.command}`);
+    if (request.reason) console.error(request.reason);
+    const answer = (await rl.question("Run this command? [y]es / [n]o / [s]ession / [p]roject / [g]lobal: ")).trim().toLowerCase();
+    if (answer === "y" || answer === "yes") return { approved: true, scope: "once" };
+    if (answer === "s" || answer === "session") return { approved: true, scope: "session" };
+    if (answer === "p" || answer === "project" || answer === "a" || answer === "always") return { approved: true, scope: "project" };
+    if (answer === "g" || answer === "global") return { approved: true, scope: "global" };
+    return { approved: false, scope: "once" };
+  } finally {
+    rl.close();
+  }
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
@@ -302,11 +342,16 @@ async function main(): Promise<void> {
   if (await handleMigrate(args)) return;
   if (await handleCore(args)) return;
 
-  if (!args.prompt) {
+  if (!args.prompt && !args.ts) {
+    await runNativeTUI(args);
+  } else if (!args.prompt) {
     const agent = await makeAgent(args);
     await runInteractive(agent);
   } else if (args.core || !args.ts) {
-    const client = await SennyCoreClient.start({ cwd: args.cwd });
+    const client = await SennyCoreClient.start({
+      cwd: args.cwd,
+      approvalHandler: (request) => approveCoreCommandInTerminal(request, args)
+    });
     client.on("stderr", (line: string) => process.stderr.write(`[core] ${line}\n`));
     let finishCoreRun!: () => void;
     const coreDone = new Promise<void>((resolve) => { finishCoreRun = resolve; });

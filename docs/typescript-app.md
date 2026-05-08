@@ -5,7 +5,13 @@ Senny exposes the native Go core through a TypeScript SDK.
 ```ts
 import { SennyCoreClient } from "senny-cli/dist/sdk/index.js";
 
-const client = await SennyCoreClient.start({ cwd: process.cwd() });
+const client = await SennyCoreClient.start({
+  cwd: process.cwd(),
+  approvalHandler: async (request) => {
+    console.log(`Approval needed for: ${request.command}`);
+    return { approved: false, scope: "once" };
+  }
+});
 
 try {
   const config = await client.getConfig();
@@ -32,6 +38,7 @@ Useful SDK calls:
 - `listPermissions(cwd)`
 - `allowTool(name, scope, cwd)`
 - `allowCommand(command, scope, cwd)`
+- `respondApproval(id, response)`
 - `createSession({ cwd, model, resume })`
 - `listSessions()`
 - `deleteSession(id)`
