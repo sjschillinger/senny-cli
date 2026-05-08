@@ -10,6 +10,7 @@ yarn-error.log*
 .DS_Store
 references/
 docs/late-cli-principles.md
+docs/improvement-plan.md
 .claude/
 .senny/sessions/
 .senny/permissions.json

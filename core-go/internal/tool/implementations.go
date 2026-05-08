@@ -63,12 +63,14 @@ func (t *ReadFileTool) Execute(ctx context.Context, args json.RawMessage) (strin
 	}
 
 	var raw string
+	var ok bool
 	if t.cache != nil {
-		if cached, ok := t.cache.Get(params.Path); ok {
+		if cached, found := t.cache.Get(params.Path); found {
 			raw = cached
+			ok = true
 		}
 	}
-	if raw == "" {
+	if !ok {
 		data, err := os.ReadFile(params.Path)
 		if err != nil {
 			return "", err
@@ -143,7 +145,7 @@ type WriteFileTool struct {
 	cache *FileCache
 }
 
-func NewWriteFileTool() WriteFileTool               { return WriteFileTool{} }
+func NewWriteFileTool() WriteFileTool                      { return WriteFileTool{} }
 func NewWriteFileToolWithCache(c *FileCache) WriteFileTool { return WriteFileTool{cache: c} }
 
 func (t WriteFileTool) Name() string { return "write_file" }

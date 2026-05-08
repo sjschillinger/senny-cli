@@ -102,8 +102,13 @@ func LoadHistory(path string) ([]client.ChatMessage, error) {
 		return []client.ChatMessage{}, nil
 	}
 
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" {
+		return []client.ChatMessage{}, nil
+	}
+
 	// Legacy: JSON array format
-	if strings.TrimSpace(string(data[:min(len(data), 10)]))[0] == '[' {
+	if strings.HasPrefix(trimmed, "[") {
 		var history []client.ChatMessage
 		if err := json.Unmarshal(data, &history); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal history: %w", err)
@@ -200,7 +205,7 @@ func isJSONArray(path string) bool {
 	defer f.Close()
 	buf := make([]byte, 16)
 	n, _ := f.Read(buf)
-	return strings.TrimSpace(string(buf[:n]))[0:1] == "["
+	return strings.HasPrefix(strings.TrimSpace(string(buf[:n])), "[")
 }
 
 func migrateToJSONL(path string, history []client.ChatMessage) error {
