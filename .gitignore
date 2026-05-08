@@ -9,6 +9,7 @@ yarn-error.log*
 .env.*
 .DS_Store
 references/
+docs/late-cli-principles.md
 .claude/
 .senny/sessions/
 .senny/permissions.json
