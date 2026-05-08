@@ -12,9 +12,12 @@ import (
 	appconfig "late/internal/config"
 	"late/internal/executor"
 	"late/internal/git"
+	"late/internal/mcp"
 	sessionpkg "late/internal/session"
+	"late/internal/tool"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +28,7 @@ type Server struct {
 	out io.Writer
 
 	mu       sync.Mutex
+	cwdMu    sync.Mutex
 	sessions map[string]*Session
 }
 
@@ -69,8 +73,68 @@ func (s *Server) handle(ctx context.Context, req Request) {
 			ProtocolVersion: "2026-05-08",
 			ServerName:      "senny-core",
 			ServerVersion:   "0.1.0",
-			Capabilities:    []string{"sessions", "run", "cancel", "events"},
+			Capabilities:    []string{"sessions", "run", "cancel", "events", "config", "mcp", "tools", "permissions"},
 		}})
+	case "config/get":
+		s.write(Response{JSONRPC: "2.0", ID: req.ID, Result: s.configResult()})
+	case "mcp/list":
+		var params CWDParams
+		if err := decode(req.Params, &params); err != nil {
+			s.writeErr(req.ID, -32602, err)
+			return
+		}
+		result, err := s.listMCP(params.CWD)
+		if err != nil {
+			s.writeErr(req.ID, -32000, err)
+			return
+		}
+		s.write(Response{JSONRPC: "2.0", ID: req.ID, Result: result})
+	case "tools/list":
+		var params ToolsListParams
+		if err := decode(req.Params, &params); err != nil {
+			s.writeErr(req.ID, -32602, err)
+			return
+		}
+		result, err := s.listTools(params)
+		if err != nil {
+			s.writeErr(req.ID, -32000, err)
+			return
+		}
+		s.write(Response{JSONRPC: "2.0", ID: req.ID, Result: result})
+	case "permissions/list":
+		var params CWDParams
+		if err := decode(req.Params, &params); err != nil {
+			s.writeErr(req.ID, -32602, err)
+			return
+		}
+		result, err := s.listPermissions(params.CWD)
+		if err != nil {
+			s.writeErr(req.ID, -32000, err)
+			return
+		}
+		s.write(Response{JSONRPC: "2.0", ID: req.ID, Result: result})
+	case "permissions/allowTool":
+		var params PermissionToolParams
+		if err := decode(req.Params, &params); err != nil {
+			s.writeErr(req.ID, -32602, err)
+			return
+		}
+		if err := s.allowTool(params); err != nil {
+			s.writeErr(req.ID, -32000, err)
+			return
+		}
+		s.write(Response{JSONRPC: "2.0", ID: req.ID, Result: map[string]bool{"allowed": true}})
+	case "permissions/allowCommand":
+		var params PermissionCommandParams
+		if err := decode(req.Params, &params); err != nil {
+			s.writeErr(req.ID, -32602, err)
+			return
+		}
+		if err := s.allowCommand(params); err != nil {
+			s.writeErr(req.ID, -32000, err)
+			return
+		}
+		s.write(Response{JSONRPC: "2.0", ID: req.ID, Result: map[string]bool{"allowed": true}})
 	case "session/create":
 		var params CreateSessionParams
 		if err := decode(req.Params, &params); err != nil {
@@ -152,6 +216,141 @@ func (s *Server) handle(ctx context.Context, req Request) {
 	default:
 		s.writeErr(req.ID, -32601, fmt.Errorf("unknown method: %s", req.Method))
 	}
+}
+
+func (s *Server) configResult() ConfigResult {
+	cfg, _ := appconfig.LoadConfig()
+	openAI := appconfig.ResolveOpenAISettings(cfg)
+	subagent := appconfig.ResolveSubagentSettings(cfg, openAI)
+	return ConfigResult{
+		EnabledTools: cfg.EnabledTools,
+		OpenAI: ResolvedEndpoint{
+			BaseURL:   openAI.BaseURL,
+			Model:     openAI.Model,
+			HasAPIKey: openAI.APIKey != "",
+		},
+		Subagent: ResolvedEndpoint{
+			BaseURL:   subagent.BaseURL,
+			Model:     subagent.Model,
+			HasAPIKey: subagent.APIKey != "",
+		},
+		SkillsDir: cfg.SkillsDir,
+	}
+}
+
+func (s *Server) listMCP(cwd string) ([]MCPServerInfo, error) {
+	var result []MCPServerInfo
+	err := s.withCWD(cwd, func() error {
+		cfg, err := mcp.LoadMCPConfig()
+		if err != nil {
+			return err
+		}
+		for name, server := range cfg.McpServers {
+			mcp.ExpandServerEnvVars(&server)
+			result = append(result, MCPServerInfo{
+				Name:     name,
+				Command:  server.Command,
+				Args:     server.Args,
+				Env:      server.Env,
+				Disabled: server.Disabled,
+			})
+		}
+		sort.Slice(result, func(i, j int) bool {
+			return result[i].Name < result[j].Name
+		})
+		return nil
+	})
+	return result, err
+}
+
+func (s *Server) listTools(params ToolsListParams) ([]ToolInfo, error) {
+	var result []ToolInfo
+	err := s.withCWD(params.CWD, func() error {
+		cfg, _ := appconfig.LoadConfig()
+		reg := tool.NewRegistry()
+		executor.RegisterTools(reg, cfg.EnabledTools, params.Planning)
+		for _, t := range reg.All() {
+			result = append(result, ToolInfo{Name: t.Name(), Description: t.Description(), Parameters: t.Parameters()})
+		}
+		return nil
+	})
+	return result, err
+}
+
+func (s *Server) listPermissions(cwd string) (PermissionsResult, error) {
+	result := PermissionsResult{Tools: map[string]bool{}, Commands: map[string]map[string]bool{}}
+	err := s.withCWD(cwd, func() error {
+		tools, err := tool.LoadAllAllowedTools()
+		if err != nil {
+			return err
+		}
+		commands, err := tool.LoadAllAllowedCommands()
+		if err != nil {
+			return err
+		}
+		result.Tools = tools
+		result.Commands = commands
+		return nil
+	})
+	return result, err
+}
+
+func (s *Server) allowTool(params PermissionToolParams) error {
+	if strings.TrimSpace(params.Name) == "" {
+		return fmt.Errorf("name is required")
+	}
+	return s.withCWD(params.CWD, func() error {
+		switch params.Scope {
+		case "", "project":
+			return tool.SaveAllowedTool(params.Name, false)
+		case "global":
+			return tool.SaveAllowedTool(params.Name, true)
+		case "session":
+			tool.SaveSessionAllowedTool(params.Name)
+			return nil
+		default:
+			return fmt.Errorf("unknown permission scope: %s", params.Scope)
+		}
+	})
+}
+
+func (s *Server) allowCommand(params PermissionCommandParams) error {
+	if strings.TrimSpace(params.Command) == "" {
+		return fmt.Errorf("command is required")
+	}
+	return s.withCWD(params.CWD, func() error {
+		switch params.Scope {
+		case "", "project":
+			return tool.SaveAllowedCommand(params.Command, false)
+		case "global":
+			return tool.SaveAllowedCommand(params.Command, true)
+		case "session":
+			tool.SaveSessionAllowedCommand(params.Command)
+			return nil
+		default:
+			return fmt.Errorf("unknown permission scope: %s", params.Scope)
+		}
+	})
+}
+
+func (s *Server) withCWD(cwd string, fn func() error) error {
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" {
+		return fn()
+	}
+	s.cwdMu.Lock()
+	defer s.cwdMu.Unlock()
+	old, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	if err := os.Chdir(cwd); err != nil {
+		return err
+	}
+	defer func() {
+		_ = os.Chdir(old)
+	}()
+	return fn()
 }
 
 func (s *Server) createSession(params CreateSessionParams) *Session {
@@ -240,32 +439,36 @@ func (s *Server) run(parent context.Context, params RunParams) error {
 	go func() {
 		s.notify("session/event", map[string]any{"sessionId": params.SessionID, "type": "turn_start", "turn": 1})
 		if session.Model != "__mock__" && session.Late != nil {
-			_ = os.Chdir(session.CWD)
-			if err := session.Late.AddUserMessage(params.Prompt); err != nil {
-				s.notify("session/event", map[string]any{"sessionId": params.SessionID, "type": "error", "message": err.Error()})
-				return
-			}
-			res, err := executor.RunLoop(
-				runCtx,
-				session.Late,
-				200,
-				nil,
-				func() {
-					s.notify("session/event", map[string]any{"sessionId": params.SessionID, "type": "turn_start"})
-				},
-				func() {
-					s.notify("session/event", map[string]any{"sessionId": params.SessionID, "type": "turn_end"})
-				},
-				func(result common.StreamResult) {
-					s.notify("session/event", map[string]any{"sessionId": params.SessionID, "type": "stream", "delta": result})
-				},
-				nil,
-			)
+			err := s.withCWD(session.CWD, func() error {
+				if err := session.Late.AddUserMessage(params.Prompt); err != nil {
+					return err
+				}
+				res, err := executor.RunLoop(
+					runCtx,
+					session.Late,
+					200,
+					nil,
+					func() {
+						s.notify("session/event", map[string]any{"sessionId": params.SessionID, "type": "turn_start"})
+					},
+					func() {
+						s.notify("session/event", map[string]any{"sessionId": params.SessionID, "type": "turn_end"})
+					},
+					func(result common.StreamResult) {
+						s.notify("session/event", map[string]any{"sessionId": params.SessionID, "type": "stream", "delta": result})
+					},
+					nil,
+				)
+				if err != nil {
+					return err
+				}
+				s.notify("session/event", map[string]any{"sessionId": params.SessionID, "type": "done", "content": res})
+				return nil
+			})
 			if err != nil {
 				s.notify("session/event", map[string]any{"sessionId": params.SessionID, "type": "error", "message": err.Error()})
 				return
 			}
-			s.notify("session/event", map[string]any{"sessionId": params.SessionID, "type": "done", "content": res})
 			return
 		}
 		select {

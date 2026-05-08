@@ -62,3 +62,37 @@ export interface WorktreeInfo {
   IsDetached: boolean;
   Status: string;
 }
+
+export interface ResolvedEndpoint {
+  baseURL: string;
+  model?: string;
+  hasApiKey: boolean;
+}
+
+export interface CoreConfig {
+  enabledTools: Record<string, boolean>;
+  openai: ResolvedEndpoint;
+  subagent: ResolvedEndpoint;
+  skillsDir?: string;
+}
+
+export interface MCPServerInfo {
+  name: string;
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+  disabled?: boolean;
+}
+
+export interface CoreToolInfo {
+  name: string;
+  description: string;
+  parameters: unknown;
+}
+
+export interface CorePermissions {
+  tools: Record<string, boolean>;
+  commands: Record<string, Record<string, boolean>>;
+}
+
+export type PermissionScope = "session" | "project" | "global";

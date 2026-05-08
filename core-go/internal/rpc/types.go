@@ -69,6 +69,10 @@ type DeleteSessionParams struct {
 	ID string `json:"id"`
 }
 
+type CWDParams struct {
+	CWD string `json:"cwd,omitempty"`
+}
+
 type WorktreeCreateParams struct {
 	Path   string `json:"path"`
 	Branch string `json:"branch,omitempty"`
@@ -86,4 +90,53 @@ type SessionMeta struct {
 	HistoryPath    string `json:"history_path"`
 	LastUserPrompt string `json:"last_user_prompt"`
 	MessageCount   int    `json:"message_count"`
+}
+
+type ResolvedEndpoint struct {
+	BaseURL   string `json:"baseURL"`
+	Model     string `json:"model,omitempty"`
+	HasAPIKey bool   `json:"hasApiKey"`
+}
+
+type ConfigResult struct {
+	EnabledTools map[string]bool  `json:"enabledTools"`
+	OpenAI       ResolvedEndpoint `json:"openai"`
+	Subagent     ResolvedEndpoint `json:"subagent"`
+	SkillsDir    string           `json:"skillsDir,omitempty"`
+}
+
+type MCPServerInfo struct {
+	Name     string            `json:"name"`
+	Command  string            `json:"command"`
+	Args     []string          `json:"args,omitempty"`
+	Env      map[string]string `json:"env,omitempty"`
+	Disabled bool              `json:"disabled,omitempty"`
+}
+
+type ToolInfo struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Parameters  json.RawMessage `json:"parameters"`
+}
+
+type ToolsListParams struct {
+	CWD      string `json:"cwd,omitempty"`
+	Planning bool   `json:"planning,omitempty"`
+}
+
+type PermissionsResult struct {
+	Tools    map[string]bool            `json:"tools"`
+	Commands map[string]map[string]bool `json:"commands"`
+}
+
+type PermissionToolParams struct {
+	CWD   string `json:"cwd,omitempty"`
+	Name  string `json:"name"`
+	Scope string `json:"scope,omitempty"`
+}
+
+type PermissionCommandParams struct {
+	CWD     string `json:"cwd,omitempty"`
+	Command string `json:"command"`
+	Scope   string `json:"scope,omitempty"`
 }

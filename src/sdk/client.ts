@@ -10,8 +10,13 @@ import type {
   JSONRPCNotification,
   JSONRPCRequest,
   JSONRPCResponse,
+  MCPServerInfo,
+  PermissionScope,
+  CoreConfig,
   RunResult,
   SessionMeta,
+  CorePermissions,
+  CoreToolInfo,
   WorktreeInfo
 } from "./protocol.js";
 
@@ -70,6 +75,32 @@ export class SennyCoreClient extends EventEmitter {
   async createSession(params: { cwd: string; model?: string; resume?: string }): Promise<CoreSession> {
     const result = await this.request<CreateSessionResult>("session/create", params);
     return new CoreSession(this, result.sessionId, result.cwd);
+  }
+
+  async getConfig(): Promise<CoreConfig> {
+    return await this.request<CoreConfig>("config/get", {});
+  }
+
+  async listMCP(cwd = process.cwd()): Promise<MCPServerInfo[]> {
+    return await this.request<MCPServerInfo[]>("mcp/list", { cwd });
+  }
+
+  async listTools(params: { cwd?: string; planning?: boolean } = {}): Promise<CoreToolInfo[]> {
+    return await this.request<CoreToolInfo[]>("tools/list", params);
+  }
+
+  async listPermissions(cwd = process.cwd()): Promise<CorePermissions> {
+    return await this.request<CorePermissions>("permissions/list", { cwd });
+  }
+
+  async allowTool(name: string, scope: PermissionScope = "project", cwd = process.cwd()): Promise<boolean> {
+    const result = await this.request<{ allowed: boolean }>("permissions/allowTool", { cwd, name, scope });
+    return result.allowed;
+  }
+
+  async allowCommand(command: string, scope: PermissionScope = "project", cwd = process.cwd()): Promise<boolean> {
+    const result = await this.request<{ allowed: boolean }>("permissions/allowCommand", { cwd, command, scope });
+    return result.allowed;
   }
 
   async listSessions(): Promise<SessionMeta[]> {
