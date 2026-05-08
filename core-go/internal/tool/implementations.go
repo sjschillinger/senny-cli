@@ -17,6 +17,7 @@ import (
 // ReadFileTool reads content from a file.
 type ReadFileTool struct {
 	LastReads map[string]ReadState
+	cache     *FileCache
 }
 
 type ReadState struct {
@@ -28,6 +29,13 @@ type ReadState struct {
 func NewReadFileTool() *ReadFileTool {
 	return &ReadFileTool{
 		LastReads: make(map[string]ReadState),
+	}
+}
+
+func NewReadFileToolWithCache(cache *FileCache) *ReadFileTool {
+	return &ReadFileTool{
+		LastReads: make(map[string]ReadState),
+		cache:     cache,
 	}
 }
 
@@ -54,12 +62,24 @@ func (t *ReadFileTool) Execute(ctx context.Context, args json.RawMessage) (strin
 		return "", err
 	}
 
-	data, err := os.ReadFile(params.Path)
-	if err != nil {
-		return "", err
+	var raw string
+	if t.cache != nil {
+		if cached, ok := t.cache.Get(params.Path); ok {
+			raw = cached
+		}
+	}
+	if raw == "" {
+		data, err := os.ReadFile(params.Path)
+		if err != nil {
+			return "", err
+		}
+		raw = string(data)
+		if t.cache != nil {
+			t.cache.Set(params.Path, raw)
+		}
 	}
 
-	lines := strings.Split(string(data), "\n")
+	lines := strings.Split(raw, "\n")
 	totalLines := len(lines)
 
 	type lineInfo struct {
@@ -119,7 +139,12 @@ func (t *ReadFileTool) CallString(args json.RawMessage) string {
 }
 
 // WriteFileTool writes content to a file.
-type WriteFileTool struct{}
+type WriteFileTool struct {
+	cache *FileCache
+}
+
+func NewWriteFileTool() WriteFileTool               { return WriteFileTool{} }
+func NewWriteFileToolWithCache(c *FileCache) WriteFileTool { return WriteFileTool{cache: c} }
 
 func (t WriteFileTool) Name() string { return "write_file" }
 func (t WriteFileTool) Description() string {
@@ -149,6 +174,9 @@ func (t WriteFileTool) Execute(ctx context.Context, args json.RawMessage) (strin
 	}
 	if err := os.WriteFile(params.Path, []byte(params.Content), 0644); err != nil {
 		return "", err
+	}
+	if t.cache != nil {
+		t.cache.Invalidate(params.Path)
 	}
 	return fmt.Sprintf("Successfully wrote to %s", params.Path), nil
 }

@@ -10,10 +10,43 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+var validEfforts = map[string]bool{"": true, "short": true, "medium": true, "long": true}
+
+// ApplyArguments replaces {{arg_name}} tokens in instructions with values from args.
+// Returns an error string (not error) if a required argument is missing, so it can be shown to the model.
+func ApplyArguments(instructions string, metadata SkillMetadata, args map[string]string) string {
+	var missing []string
+	for _, arg := range metadata.Arguments {
+		val, ok := args[arg.Name]
+		if !ok || val == "" {
+			if arg.Required {
+				missing = append(missing, arg.Name)
+			}
+			continue
+		}
+		instructions = strings.ReplaceAll(instructions, "{{"+arg.Name+"}}", val)
+	}
+	if len(missing) > 0 {
+		return fmt.Sprintf("Error: required skill arguments missing: %s", strings.Join(missing, ", "))
+	}
+	return instructions
+}
+
+// SkillArgument describes a named argument a skill expects.
+type SkillArgument struct {
+	Name        string `yaml:"name"`
+	Description string `yaml:"description,omitempty"`
+	Required    bool   `yaml:"required,omitempty"`
+}
+
 // SkillMetadata represents the YAML frontmatter of a SKILL.md file.
 type SkillMetadata struct {
 	Name          string            `yaml:"name"`
 	Description   string            `yaml:"description"`
+	WhenToUse     string            `yaml:"when_to_use,omitempty"`
+	Effort        string            `yaml:"effort,omitempty"` // short | medium | long
+	Tags          []string          `yaml:"tags,omitempty"`
+	Arguments     []SkillArgument   `yaml:"arguments,omitempty"`
 	License       string            `yaml:"license,omitempty"`
 	Compatibility string            `yaml:"compatibility,omitempty"`
 	Metadata      map[string]string `yaml:"metadata,omitempty"`
@@ -46,6 +79,9 @@ func LoadSkill(skillDir string) (*Skill, error) {
 	}
 	if metadata.Description == "" {
 		return nil, fmt.Errorf("SKILL.md in %s is missing 'description' field", skillDir)
+	}
+	if !validEfforts[metadata.Effort] {
+		return nil, fmt.Errorf("SKILL.md in %s has invalid 'effort' value %q (must be short, medium, or long)", skillDir, metadata.Effort)
 	}
 
 	expectedName := filepath.Base(skillDir)

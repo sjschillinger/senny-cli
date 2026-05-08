@@ -75,6 +75,14 @@ func SennySessionDir() (string, error) {
 	return filepath.Join(homeDir, ".local", "share", "senny", "sessions"), nil
 }
 
+func SennyGlobalMemoryPath() (string, error) {
+	dir, err := SennyConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "MEMORY.md"), nil
+}
+
 // SennyProjectMCPConfigPath returns the relative Senny project-local MCP config
 // location (".senny/mcp_config.json"), resolved relative to process CWD.
 func SennyProjectMCPConfigPath() string {

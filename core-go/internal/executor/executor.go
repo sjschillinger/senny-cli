@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"senny/internal/client"
 	"senny/internal/common"
+	"senny/internal/compact"
 	"senny/internal/pathutil"
 	"senny/internal/session"
 	"senny/internal/skill"
@@ -115,14 +117,23 @@ func ExecuteToolCalls(ctx context.Context, sess *session.Session, toolCalls []cl
 // RegisterTools registers the common tool set on a session's registry.
 // If isPlanning is true, it only registers read-only tools and the planning tool.
 // Otherwise, it registers the full set of coding tools.
-func RegisterTools(reg *tool.Registry, enabledTools map[string]bool, isPlanning bool) {
+// cache is optional; pass nil to skip file-content caching.
+func RegisterTools(reg *tool.Registry, enabledTools map[string]bool, isPlanning bool, cache ...*tool.FileCache) {
 	if enabledTools == nil {
 		enabledTools = make(map[string]bool)
+	}
+	var fc *tool.FileCache
+	if len(cache) > 0 {
+		fc = cache[0]
 	}
 
 	// Always register read-only and base tools
 	if enabledTools["read_file"] {
-		reg.Register(tool.NewReadFileTool())
+		if fc != nil {
+			reg.Register(tool.NewReadFileToolWithCache(fc))
+		} else {
+			reg.Register(tool.NewReadFileTool())
+		}
 	}
 	if enabledTools["bash"] {
 		reg.Register(&tool.ShellTool{})
@@ -134,10 +145,18 @@ func RegisterTools(reg *tool.Registry, enabledTools map[string]bool, isPlanning 
 	} else {
 		// Coding-only tools
 		if enabledTools["write_file"] {
-			reg.Register(tool.WriteFileTool{})
+			if fc != nil {
+				reg.Register(tool.NewWriteFileToolWithCache(fc))
+			} else {
+				reg.Register(tool.NewWriteFileTool())
+			}
 		}
 		if enabledTools["target_edit"] {
-			reg.Register(tool.NewTargetEditTool())
+			if fc != nil {
+				reg.Register(tool.NewTargetEditToolWithCache(fc))
+			} else {
+				reg.Register(tool.NewTargetEditTool())
+			}
 		}
 	}
 
@@ -218,8 +237,10 @@ func RunLoop(
 	onEndTurn func(),
 	onStreamChunk func(common.StreamResult),
 	middlewares []common.ToolMiddleware,
-) (string, error) {
+) (string, client.Usage, error) {
 	var lastContent string
+	var cumUsage client.Usage
+	var lastCompactTurn = -3 // allow compaction from the first eligible turn
 
 	for i := 0; maxTurns <= 0 || i < maxTurns; i++ {
 		if onStartTurn != nil {
@@ -229,11 +250,15 @@ func RunLoop(
 		streamCh, errCh := sess.StartStream(ctx, extraBody)
 		acc, err := ConsumeStream(ctx, streamCh, errCh, onStreamChunk)
 		if err != nil {
-			return "", err
+			return "", cumUsage, err
+		}
+
+		if acc.Usage.TotalTokens > 0 {
+			cumUsage = acc.Usage
 		}
 
 		if acc.FinishReason == "length" {
-			return "", fmt.Errorf("exceeds the available context size")
+			return "", cumUsage, fmt.Errorf("exceeds the available context size")
 		}
 
 		// If stopped, the last tool call might be partially streamed and thus invalid JSON.
@@ -251,15 +276,29 @@ func RunLoop(
 		}
 
 		if err := sess.AddAssistantMessageWithTools(acc.Content, acc.Reasoning, acc.ToolCalls); err != nil {
-			return "", fmt.Errorf("failed to save history: %w", err)
+			return "", cumUsage, fmt.Errorf("failed to save history: %w", err)
 		}
 
 		if onEndTurn != nil {
 			onEndTurn()
 		}
 
+		// Attempt compaction if token usage is high and enough turns have passed.
+		if cumUsage.PromptTokens > 0 && (i-lastCompactTurn) >= 3 {
+			ctxSize := sess.Client().ContextSize()
+			if compact.ShouldCompact(cumUsage.PromptTokens, ctxSize) {
+				if summary, replacedIDs, cerr := compact.CompactSession(ctx, sess.Client(), sess.History, sess.SystemPrompt()); cerr == nil {
+					if werr := session.WriteCompactBoundary(sess.HistoryPath, replacedIDs, summary); werr == nil {
+						sess.ApplyCompaction(replacedIDs, summary)
+						lastCompactTurn = i
+						fmt.Fprintf(os.Stderr, "[compacted: %d messages → 1 summary]\n", len(replacedIDs))
+					}
+				}
+			}
+		}
+
 		if len(acc.ToolCalls) == 0 {
-			return acc.Content, nil
+			return acc.Content, cumUsage, nil
 		}
 
 		lastContent = acc.Content
@@ -267,21 +306,21 @@ func RunLoop(
 		// If a stop was requested, break the loop before executing tools
 		select {
 		case <-ctx.Done():
-			return lastContent + "\n\n(Stopped by user)", nil
+			return lastContent + "\n\n(Stopped by user)", cumUsage, nil
 		default:
 		}
 
 		if err := ExecuteToolCalls(ctx, sess, acc.ToolCalls, middlewares); err != nil {
-			return "", err
+			return "", cumUsage, err
 		}
 
 		// Also check after tool execution in case user requested stop during a long tool
 		select {
 		case <-ctx.Done():
-			return lastContent + "\n\n(Stopped by user)", nil
+			return lastContent + "\n\n(Stopped by user)", cumUsage, nil
 		default:
 		}
 	}
 
-	return lastContent + "\n\n(Terminated due to max turns limit)", nil
+	return lastContent + "\n\n(Terminated due to max turns limit)", cumUsage, nil
 }

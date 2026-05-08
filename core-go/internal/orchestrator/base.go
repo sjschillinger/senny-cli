@@ -138,7 +138,7 @@ func (o *BaseOrchestrator) Execute(text string) (string, error) {
 		o.eventCh <- common.ContentEvent{ID: o.id, Usage: usage}
 	}
 
-	res, err := executor.RunLoop(
+	res, _, err := executor.RunLoop(
 		ctx,
 		o.sess,
 		o.maxTurns,
@@ -205,7 +205,7 @@ func (o *BaseOrchestrator) run() {
 		o.eventCh <- common.ContentEvent{ID: o.id, Usage: usage}
 	}
 
-	_, err := executor.RunLoop(
+	_, _, err := executor.RunLoop(
 		ctx,
 		o.sess,
 		o.maxTurns,

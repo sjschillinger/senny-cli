@@ -28,6 +28,15 @@ import (
 	"charm.land/glamour/v2"
 )
 
+const (
+	exitSuccess          = 0
+	exitError            = 1
+	exitContextExceeded  = 2
+	exitMaxTurns         = 3
+	exitCancelled        = 4
+	exitConfig           = 5
+)
+
 func main() {
 	// Parse flags
 	helpReq := flag.Bool("help", false, "Show help")
@@ -94,7 +103,7 @@ func main() {
 		content, err := os.ReadFile(*systemPromptFileReq)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error reading system prompt file: %v\n", err)
-			os.Exit(1)
+			os.Exit(exitConfig)
 		}
 		systemPrompt = string(content)
 	} else if *systemPromptReq != "" {
@@ -140,7 +149,7 @@ func main() {
 	sessionsDir, err := session.SessionDir()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to get session directory: %v\n", err)
-		os.Exit(1)
+		os.Exit(exitConfig)
 	}
 	sessionID := fmt.Sprintf("session-%s", time.Now().Format("20060102-150405"))
 	historyPath := filepath.Join(sessionsDir, sessionID+".json")
@@ -215,7 +224,7 @@ func main() {
 	}
 
 	sess := session.New(c, historyPath, history, systemPrompt, *useToolsReq)
-	executor.RegisterTools(sess.Registry, enabledTools, true)
+	executor.RegisterTools(sess.Registry, enabledTools, true, tool.NewFileCache())
 
 	// Register MCP tools into the session registry
 	for _, t := range mcpClient.GetTools() {
@@ -287,7 +296,7 @@ func main() {
 
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Unspecified error: %v", err)
-		os.Exit(1)
+		os.Exit(exitError)
 	}
 }
 
@@ -334,14 +343,14 @@ func handleSessionCommand(args []string) (string, []string, bool) {
 		if len(commandArgs) < 1 {
 			fmt.Println("Error: session ID required")
 			fmt.Println("Usage: late session load <id>")
-			os.Exit(1)
+			os.Exit(exitError)
 		}
 		return handleSessionLoad(commandArgs[0]), nil, false
 	case "delete":
 		if len(commandArgs) < 1 {
 			fmt.Println("Error: session ID required")
 			fmt.Println("Usage: late session delete <id>")
-			os.Exit(1)
+			os.Exit(exitError)
 		}
 		handleSessionDelete(commandArgs[0])
 		return "", nil, true
@@ -357,7 +366,7 @@ func handleSessionList(verbose bool) {
 	metas, err := session.ListSessions()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error listing sessions: %v\n", err)
-		os.Exit(1)
+		os.Exit(exitError)
 	}
 
 	if len(metas) == 0 {
@@ -379,13 +388,13 @@ func handleSessionLoad(id string) string {
 	meta, err := session.LoadSessionMeta(id)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading session: %v\n", err)
-		os.Exit(1)
+		os.Exit(exitError)
 	}
 	if meta == nil {
 		fmt.Fprintf(os.Stderr, "Session not found: %s\n", id)
 		fmt.Println("")
 		fmt.Println("Use 'late session list' to see available sessions.")
-		os.Exit(1)
+		os.Exit(exitError)
 	}
 
 	fmt.Printf("Resuming session: %s (%s)\n", meta.ID, meta.Title)
@@ -399,31 +408,31 @@ func handleSessionDelete(id string) {
 	meta, err := session.LoadSessionMeta(id)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading session: %v\n", err)
-		os.Exit(1)
+		os.Exit(exitError)
 	}
 	if meta == nil {
 		fmt.Fprintf(os.Stderr, "Session not found: %s\n", id)
 		fmt.Println("")
 		fmt.Println("Use 'late session list' to see available sessions.")
-		os.Exit(1)
+		os.Exit(exitError)
 	}
 
 	// Delete metadata
 	sessionsDir, err := session.SessionDir()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error getting session directory: %v\n", err)
-		os.Exit(1)
+		os.Exit(exitError)
 	}
 	metaPath := filepath.Join(sessionsDir, meta.ID+".meta.json")
 	if err := os.Remove(metaPath); err != nil {
 		fmt.Fprintf(os.Stderr, "Error deleting metadata: %v\n", err)
-		os.Exit(1)
+		os.Exit(exitError)
 	}
 
 	// Delete history file
 	if err := os.Remove(meta.HistoryPath); err != nil {
 		fmt.Fprintf(os.Stderr, "Error deleting history: %v\n", err)
-		os.Exit(1)
+		os.Exit(exitError)
 	}
 
 	fmt.Printf("Deleted session: %s\n", meta.Title)
@@ -514,7 +523,7 @@ func handleWorktreeList() {
 	worktrees, err := git.ListWorktrees()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error listing worktrees: %v\n", err)
-		os.Exit(1)
+		os.Exit(exitError)
 	}
 
 	if len(worktrees) == 0 {
@@ -545,7 +554,7 @@ func handleWorktreeCreate(path string, branch string) {
 		output, err := cmd.Output()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error getting current branch: %v\n", err)
-			os.Exit(1)
+			os.Exit(exitError)
 		}
 		branch = strings.TrimSpace(string(output))
 	}
@@ -553,7 +562,7 @@ func handleWorktreeCreate(path string, branch string) {
 	// Create the worktree
 	if err := git.CreateWorktree(path, branch); err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating worktree: %v\n", err)
-		os.Exit(1)
+		os.Exit(exitError)
 	}
 
 	fmt.Printf("Created worktree at %s (branch: %s)\n", path, branch)
@@ -563,7 +572,7 @@ func handleWorktreeCreate(path string, branch string) {
 func handleWorktreeRemove(path string) {
 	if err := git.RemoveWorktree(path); err != nil {
 		fmt.Fprintf(os.Stderr, "Error removing worktree: %v\n", err)
-		os.Exit(1)
+		os.Exit(exitError)
 	}
 	fmt.Printf("Removed worktree at %s\n", path)
 }
@@ -573,7 +582,7 @@ func handleWorktreeActive() {
 	path, err := git.GetActiveWorktree()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error getting active worktree: %v\n", err)
-		os.Exit(1)
+		os.Exit(exitError)
 	}
 
 	// Check if this is the main worktree (path is empty or indicates main)

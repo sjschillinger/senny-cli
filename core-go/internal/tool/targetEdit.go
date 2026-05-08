@@ -10,10 +10,16 @@ import (
 )
 
 // TargetEditTool performs targeted file edits using search and replace blocks.
-type TargetEditTool struct{}
+type TargetEditTool struct {
+	cache *FileCache
+}
 
 func NewTargetEditTool() *TargetEditTool {
 	return &TargetEditTool{}
+}
+
+func NewTargetEditToolWithCache(cache *FileCache) *TargetEditTool {
+	return &TargetEditTool{cache: cache}
 }
 
 func (t *TargetEditTool) Name() string { return "target_edit" }
@@ -83,6 +89,9 @@ func (t *TargetEditTool) Execute(ctx context.Context, args json.RawMessage) (str
 	// Write back
 	if err := os.WriteFile(params.File, []byte(newContent), 0644); err != nil {
 		return "", fmt.Errorf("failed to write file: %v", err)
+	}
+	if t.cache != nil {
+		t.cache.Invalidate(params.File)
 	}
 
 	return fmt.Sprintf("Successfully applied edit to %s", params.File), nil

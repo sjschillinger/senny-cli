@@ -361,6 +361,7 @@ async function main(): Promise<void> {
       if (watchdogTimer) clearTimeout(watchdogTimer);
       watchdogTimer = setTimeout(() => {
         process.stderr.write("[senny-core] no response for 2 minutes — aborting\n");
+        process.exitCode = 1;
         finishCoreRun();
       }, WATCHDOG_MS);
     };
@@ -374,13 +375,19 @@ async function main(): Promise<void> {
       } else if (event.type === "done") {
         if (!didStream) process.stdout.write(event.content);
         process.stdout.write("\n");
+        if (event.usage?.total_tokens) {
+          process.stderr.write(`[tokens: ${event.usage.total_tokens}]\n`);
+        }
+        if (event.exit_code) process.exitCode = event.exit_code;
         clearWatchdog();
         finishCoreRun();
       } else if (event.type === "error") {
         console.error(`[core error] ${event.message}`);
+        process.exitCode = event.exit_code ?? 1;
         clearWatchdog();
         finishCoreRun();
       } else if (event.type === "cancelled") {
+        process.exitCode = event.exit_code ?? 4;
         clearWatchdog();
         finishCoreRun();
       }

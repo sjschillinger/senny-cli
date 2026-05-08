@@ -6,9 +6,19 @@ import type { JsonSchema, Tool, ToolContext } from "./types.js";
 import type { ToolRegistry } from "./tools/registry.js";
 import { configHome, truncate } from "./util.js";
 
+export interface SkillArgument {
+  name: string;
+  description?: string;
+  required?: boolean;
+}
+
 export interface SkillMetadata {
   name: string;
   description: string;
+  when_to_use?: string;
+  effort?: "short" | "medium" | "long";
+  tags?: string[];
+  arguments?: SkillArgument[];
   license?: string;
   compatibility?: string;
   metadata?: Record<string, string>;
@@ -76,7 +86,12 @@ export function registerActivateSkillTool(registry: ToolRegistry, skills: Skill[
   registry.register({
     name: "activate_skill",
     description: `Activate a skill by name to see its instructions and enable its scripts as tools. Available: ${skills
-      .map((skill) => `${skill.metadata.name}: ${skill.metadata.description}`)
+      .map((skill) => {
+        let desc = `${skill.metadata.name}: ${skill.metadata.description}`;
+        if (skill.metadata.when_to_use) desc += ` (use when: ${skill.metadata.when_to_use})`;
+        if (skill.metadata.effort) desc += ` [effort: ${skill.metadata.effort}]`;
+        return desc;
+      })
       .join("; ")}`,
     mutates: false,
     parameters: {

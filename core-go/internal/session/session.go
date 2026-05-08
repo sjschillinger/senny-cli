@@ -2,6 +2,8 @@ package session
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"senny/internal/client"
@@ -12,6 +14,12 @@ import (
 	"time"
 )
 
+func newID() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
 // Session manages the chat state and interacts with the LLM client.
 type Session struct {
 	client       *client.Client
@@ -20,6 +28,7 @@ type Session struct {
 	systemPrompt string
 	useTools     bool
 	Registry     *tool.Registry
+	savedCount   int // cursor: number of messages already written to the JSONL file
 }
 
 func New(c *client.Client, historyPath string, history []client.ChatMessage, systemPrompt string, useTools bool) *Session {
@@ -30,6 +39,7 @@ func New(c *client.Client, historyPath string, history []client.ChatMessage, sys
 		systemPrompt: systemPrompt,
 		useTools:     useTools,
 		Registry:     tool.NewRegistry(),
+		savedCount:   len(history), // pre-existing history is already on disk
 	}
 }
 
@@ -46,6 +56,7 @@ func (s *Session) ExecuteTool(ctx context.Context, tc client.ToolCall) (string, 
 // AddToolResultMessage adds a tool response message to history.
 func (s *Session) AddToolResultMessage(toolCallID, content string) error {
 	s.History = append(s.History, client.ChatMessage{
+		ID:         newID(),
 		Role:       "tool",
 		ToolCallID: toolCallID,
 		Content:    content,
@@ -56,6 +67,7 @@ func (s *Session) AddToolResultMessage(toolCallID, content string) error {
 // AddAssistantMessageWithTools adds an assistant message with tool calls.
 func (s *Session) AddAssistantMessageWithTools(content string, reasoning string, toolCalls []client.ToolCall) error {
 	s.History = append(s.History, client.ChatMessage{
+		ID:               newID(),
 		Role:             "assistant",
 		Content:          content,
 		ReasoningContent: reasoning,
@@ -82,13 +94,14 @@ func (s *Session) GetToolDefinitions() []client.ToolDefinition {
 
 // AddUserMessage adds a user message to history and persists it.
 func (s *Session) AddUserMessage(content string) error {
-	s.History = append(s.History, client.ChatMessage{Role: "user", Content: content})
+	s.History = append(s.History, client.ChatMessage{ID: newID(), Role: "user", Content: content})
 	return s.saveAndNotify()
 }
 
 // AddAssistantMessage adds an assistant message to history and persists it.
 func (s *Session) AddAssistantMessage(content, reasoning string) error {
 	s.History = append(s.History, client.ChatMessage{
+		ID:               newID(),
 		Role:             "assistant",
 		Content:          content,
 		ReasoningContent: reasoning,
@@ -271,14 +284,34 @@ func (s *Session) saveAndNotify() error {
 	if s.HistoryPath == "" {
 		return nil // Skip saving if no path provided (e.g., subagents)
 	}
-	if err := SaveHistory(s.HistoryPath, s.History); err != nil {
+	if err := AppendMessages(s.HistoryPath, s.History, s.savedCount); err != nil {
 		return err
 	}
+	s.savedCount = len(s.History)
 	return s.UpdateSessionMetadata()
 }
 
 func (s *Session) Client() *client.Client {
 	return s.client
+}
+
+// ApplyCompaction removes replaced messages from in-memory history and inserts the summary.
+// After this call, savedCount is reset to the full history length since compaction
+// data is already on disk via WriteCompactBoundary.
+func (s *Session) ApplyCompaction(replacedIDs []string, summary client.ChatMessage) {
+	removed := make(map[string]bool, len(replacedIDs))
+	for _, id := range replacedIDs {
+		removed[id] = true
+	}
+	filtered := make([]client.ChatMessage, 0, len(s.History))
+	for _, msg := range s.History {
+		if !removed[msg.ID] {
+			filtered = append(filtered, msg)
+		}
+	}
+	// Insert summary at the front of the remaining history.
+	s.History = append([]client.ChatMessage{summary}, filtered...)
+	s.savedCount = len(s.History) // all on disk
 }
 
 func (s *Session) IsLlamaCPP() bool {

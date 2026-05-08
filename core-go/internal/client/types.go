@@ -18,6 +18,7 @@ type CompletionResponse struct {
 }
 
 type ChatMessage struct {
+	ID               string     `json:"id,omitempty"`
 	Role             string     `json:"role"`
 	Content          string     `json:"content"`
 	ReasoningContent string     `json:"reasoning_content,omitempty"`

@@ -90,7 +90,14 @@ func (t ActivateSkillTool) Parameters() json.RawMessage {
 
 	for name, s := range t.Skills {
 		names = append(names, name)
-		descBuilder.WriteString(fmt.Sprintf("- %s: %s\n", name, s.Metadata.Description))
+		line := fmt.Sprintf("- %s: %s", name, s.Metadata.Description)
+		if s.Metadata.WhenToUse != "" {
+			line += fmt.Sprintf(" (use when: %s)", s.Metadata.WhenToUse)
+		}
+		if s.Metadata.Effort != "" {
+			line += fmt.Sprintf(" [effort: %s]", s.Metadata.Effort)
+		}
+		descBuilder.WriteString(line + "\n")
 	}
 	enumStr, _ := json.Marshal(names)
 

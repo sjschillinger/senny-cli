@@ -15,6 +15,8 @@ import (
 	"senny/internal/executor"
 	"senny/internal/git"
 	"senny/internal/mcp"
+	memorypkg "senny/internal/memory"
+	"senny/internal/pathutil"
 	sessionpkg "senny/internal/session"
 	"senny/internal/tool"
 	"sort"
@@ -467,7 +469,7 @@ func (s *Server) run(parent context.Context, params RunParams) error {
 				if err := session.Late.AddUserMessage(params.Prompt); err != nil {
 					return err
 				}
-				res, err := executor.RunLoop(
+				res, usage, err := executor.RunLoop(
 					runCtx,
 					session.Late,
 					200,
@@ -486,20 +488,30 @@ func (s *Server) run(parent context.Context, params RunParams) error {
 				if err != nil {
 					return err
 				}
-				s.notify("session/event", map[string]any{"sessionId": params.SessionID, "type": "done", "content": res})
+				exitCode := 0
+				if strings.HasSuffix(res, "(Terminated due to max turns limit)") {
+					exitCode = 3
+				} else if strings.HasSuffix(res, "(Stopped by user)") {
+					exitCode = 4
+				}
+				s.notify("session/event", map[string]any{"sessionId": params.SessionID, "type": "done", "content": res, "exit_code": exitCode, "usage": usage})
 				return nil
 			})
 			if err != nil {
-				s.notify("session/event", map[string]any{"sessionId": params.SessionID, "type": "error", "message": err.Error()})
+				exitCode := 1
+				if strings.Contains(err.Error(), "exceeds the available context size") {
+					exitCode = 2
+				}
+				s.notify("session/event", map[string]any{"sessionId": params.SessionID, "type": "error", "message": err.Error(), "exit_code": exitCode})
 				return
 			}
 			return
 		}
 		select {
 		case <-runCtx.Done():
-			s.notify("session/event", map[string]any{"sessionId": params.SessionID, "type": "cancelled"})
+			s.notify("session/event", map[string]any{"sessionId": params.SessionID, "type": "cancelled", "exit_code": 4})
 		default:
-			s.notify("session/event", map[string]any{"sessionId": params.SessionID, "type": "done", "content": "native core skeleton ready"})
+			s.notify("session/event", map[string]any{"sessionId": params.SessionID, "type": "done", "content": "native core skeleton ready", "exit_code": 0})
 		}
 	}()
 	return nil
@@ -514,13 +526,51 @@ func newLateSession(id, cwd, model string) *sessionpkg.Session {
 	c := client.NewClient(client.Config{BaseURL: settings.BaseURL, APIKey: settings.APIKey, Model: settings.Model})
 	c.DiscoverBackend(context.Background())
 	promptBytes, _ := assets.PromptsFS.ReadFile("prompts/instruction-planning.md")
-	systemPrompt := strings.ReplaceAll(string(promptBytes), "${{CWD}}", cwd)
+	basePrompt := strings.ReplaceAll(string(promptBytes), "${{CWD}}", cwd)
+	systemPrompt := buildSystemPromptWithMemory(cwd, basePrompt)
 	historyPath := filepath.Join(sessionDir(), id+".json")
 	history, _ := sessionpkg.LoadHistory(historyPath)
 	sess := sessionpkg.New(c, historyPath, history, systemPrompt, true)
 	enabled := map[string]bool{"read_file": true, "bash": true, "write_file": true, "target_edit": true}
-	executor.RegisterTools(sess.Registry, enabled, true)
+	executor.RegisterTools(sess.Registry, enabled, true, tool.NewFileCache())
 	return sess
+}
+
+const globalMemoryCap = 2000  // chars (~500 tokens)
+const projectMemoryCap = 8000 // chars (~2000 tokens)
+
+// buildSystemPromptWithMemory appends any discovered memory context to the base system prompt.
+// It loads global memory (~/.config/senny/MEMORY.md) and project memory (SENNY.md / LATE.md in cwd).
+func buildSystemPromptWithMemory(cwd, base string) string {
+	var blocks []string
+
+	// Global memory
+	if globalPath, err := pathutil.SennyGlobalMemoryPath(); err == nil {
+		if data, err := os.ReadFile(globalPath); err == nil && len(data) > 0 {
+			content := string(data)
+			if len(content) > globalMemoryCap {
+				content = content[:globalMemoryCap] + "\n... (truncated)"
+			}
+			blocks = append(blocks, "## Global Memory\n"+strings.TrimSpace(content))
+		}
+	}
+
+	// Project memory — prefer SENNY.md, fall back to LATE.md; follow nested [path.md] links
+	for _, name := range []string{"SENNY.md", "LATE.md"} {
+		p := filepath.Join(cwd, name)
+		if _, err := os.Stat(p); err == nil {
+			content := memorypkg.LoadMemoryTree(p, cwd, projectMemoryCap)
+			if strings.TrimSpace(content) != "" {
+				blocks = append(blocks, fmt.Sprintf("## Project Memory (%s)\n", name)+strings.TrimSpace(content))
+				break
+			}
+		}
+	}
+
+	if len(blocks) == 0 {
+		return base
+	}
+	return base + "\n\n# Memory Context\n" + strings.Join(blocks, "\n\n")
 }
 
 // shellApprovalMiddleware enforces the bash analyzer allow-list before tool execution.

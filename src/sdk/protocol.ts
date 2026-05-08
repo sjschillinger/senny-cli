@@ -57,9 +57,9 @@ export type CoreEvent =
   | { sessionId: string; type: "turn_start"; turn?: number }
   | { sessionId: string; type: "turn_end" }
   | { sessionId: string; type: "stream"; delta: CoreStreamDelta }
-  | { sessionId: string; type: "done"; content: string }
-  | { sessionId: string; type: "error"; message: string }
-  | { sessionId: string; type: "cancelled" };
+  | { sessionId: string; type: "done"; content: string; exit_code?: number; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } }
+  | { sessionId: string; type: "error"; message: string; exit_code?: number }
+  | { sessionId: string; type: "cancelled"; exit_code?: number };
 
 export interface SessionMeta {
   id: string;

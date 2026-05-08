@@ -20,6 +20,10 @@ func SennySessionDir() (string, error) {
 	return pathutil.SennySessionDir()
 }
 
+func SennyGlobalMemoryPath() (string, error) {
+	return pathutil.SennyGlobalMemoryPath()
+}
+
 func SennyProjectMCPConfigPath() string {
 	return pathutil.SennyProjectMCPConfigPath()
 }
