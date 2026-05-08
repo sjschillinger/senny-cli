@@ -74,7 +74,7 @@ Environment:
 }
 
 async function makeAgent(args: Args, sessionID?: string): Promise<Agent> {
-  const config = await loadConfig();
+  const config = await loadConfig(args.cwd);
   const client = new OpenAICompatClient({
     baseURL: config.openAIBaseURL,
     apiKey: config.openAIAPIKey,
@@ -92,7 +92,11 @@ async function makeAgent(args: Args, sessionID?: string): Promise<Agent> {
     cwd: args.cwd,
     config,
     unsafe: args.unsafe || config.approvalMode === "auto",
-    approveTool: args.yes || config.approvalMode === "auto" ? async () => true : config.approvalMode === "deny" ? async () => false : approveInTerminal,
+    approveTool: args.yes || config.approvalMode === "auto"
+      ? async () => true
+      : config.approvalMode === "deny"
+        ? async () => false
+        : (tool, toolArgs) => approveInTerminal(tool, toolArgs, args.cwd),
     registry,
     session,
     onText: (text) => process.stdout.write(text),
@@ -189,7 +193,7 @@ async function main(): Promise<void> {
     const agent = await makeAgent(args);
     await runInteractive(agent);
   } else if (args.core || !args.ts) {
-    const client = await SennyCoreClient.start({ cwd: process.cwd() });
+    const client = await SennyCoreClient.start({ cwd: args.cwd });
     let finishCoreRun!: () => void;
     const coreDone = new Promise<void>((resolve) => {
       finishCoreRun = resolve;

@@ -36,28 +36,28 @@ export async function runInteractive(agent: Agent): Promise<void> {
   }
 }
 
-export async function approveInTerminal(tool: Tool, args: unknown): Promise<boolean> {
+export async function approveInTerminal(tool: Tool, args: unknown, cwd = process.cwd()): Promise<boolean> {
   const command = tool.name === "bash" && typeof args === "object" && args !== null ? String((args as Record<string, unknown>).command ?? "") : "";
-  if (command && await isCommandAllowed(command)) return true;
-  if (await isToolAllowed(tool.name)) return true;
+  if (command && await isCommandAllowed(command, cwd)) return true;
+  if (await isToolAllowed(tool.name, cwd)) return true;
   const rl = readline.createInterface({ input, output });
   try {
     console.log(`\nTool approval required: ${tool.name}`);
     console.log(JSON.stringify(args, null, 2));
     const answer = (await rl.question("Run this tool? [y]es / [n]o / [s]ession / [p]roject / [g]lobal: ")).trim().toLowerCase();
     if (answer === "s" || answer === "session") {
-      if (command) await allowCommand(command, "session");
-      else await allowTool(tool.name, "session");
+      if (command) await allowCommand(command, "session", cwd);
+      else await allowTool(tool.name, "session", cwd);
       return true;
     }
     if (answer === "p" || answer === "project" || answer === "a" || answer === "always") {
-      if (command) await allowCommand(command, "project");
-      else await allowTool(tool.name, "project");
+      if (command) await allowCommand(command, "project", cwd);
+      else await allowTool(tool.name, "project", cwd);
       return true;
     }
     if (answer === "g" || answer === "global") {
-      if (command) await allowCommand(command, "global");
-      else await allowTool(tool.name, "global");
+      if (command) await allowCommand(command, "global", cwd);
+      else await allowTool(tool.name, "global", cwd);
       return true;
     }
     return answer === "y" || answer === "yes";

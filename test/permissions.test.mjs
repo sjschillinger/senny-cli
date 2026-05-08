@@ -18,16 +18,26 @@ test("parseCommandsForAllowList extracts command keys and flags", () => {
 
 test("project command and tool allow-lists persist", async () => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "senny-perms-"));
-  const oldCwd = process.cwd();
-  process.chdir(cwd);
   try {
-    await allowTool("write_file", "project");
-    assert.equal(await isToolAllowed("write_file"), true);
-    await allowCommand("git log --oneline", "project");
-    assert.equal(await isCommandAllowed("git log --oneline"), true);
-    assert.equal(await isCommandAllowed("git log --graph"), false);
+    await allowTool("write_file", "project", cwd);
+    assert.equal(await isToolAllowed("write_file", cwd), true);
+    await allowCommand("git log --oneline", "project", cwd);
+    assert.equal(await isCommandAllowed("git log --oneline", cwd), true);
+    assert.equal(await isCommandAllowed("git log --graph", cwd), false);
   } finally {
-    process.chdir(oldCwd);
     await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("project allow-lists honor explicit cwd", async () => {
+  const cwdA = await mkdtemp(path.join(os.tmpdir(), "senny-perms-a-"));
+  const cwdB = await mkdtemp(path.join(os.tmpdir(), "senny-perms-b-"));
+  try {
+    await allowTool("target_edit", "project", cwdA);
+    assert.equal(await isToolAllowed("target_edit", cwdA), true);
+    assert.equal(await isToolAllowed("target_edit", cwdB), false);
+  } finally {
+    await rm(cwdA, { recursive: true, force: true });
+    await rm(cwdB, { recursive: true, force: true });
   }
 });

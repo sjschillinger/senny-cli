@@ -61,19 +61,19 @@ export function parseCommandsForAllowList(command: string): Record<string, strin
   return result;
 }
 
-export async function isToolAllowed(name: string): Promise<boolean> {
+export async function isToolAllowed(name: string, cwd = process.cwd()): Promise<boolean> {
   cleanupSessionApprovals();
   if (sessionTools.has(name)) return true;
-  const allowed = await loadAllAllowedTools();
+  const allowed = await loadAllAllowedTools(cwd);
   return allowed.has(name);
 }
 
-export async function allowTool(name: string, scope: "session" | "project" | "global" = "project"): Promise<void> {
+export async function allowTool(name: string, scope: "session" | "project" | "global" = "project", cwd = process.cwd()): Promise<void> {
   if (scope === "session") {
     sessionTools.set(name, Date.now() + sessionApprovalTTL);
     return;
   }
-  const file = await loadToolsFile(toolPath(scope));
+  const file = await loadToolsFile(toolPath(scope, cwd));
   const now = new Date();
   file.version = version;
   file.entries ??= {};
@@ -82,14 +82,14 @@ export async function allowTool(name: string, scope: "session" | "project" | "gl
     expires_at: new Date(now.getTime() + (scope === "global" ? globalApprovalTTL : projectApprovalTTL)).toISOString(),
     version
   };
-  await writeJSON(toolPath(scope), file);
+  await writeJSON(toolPath(scope, cwd), file);
 }
 
-export async function isCommandAllowed(command: string): Promise<boolean> {
+export async function isCommandAllowed(command: string, cwd = process.cwd()): Promise<boolean> {
   cleanupSessionApprovals();
   const requested = parseCommandsForAllowList(command);
   if (Object.keys(requested).length === 0) return false;
-  const allowed = await loadAllAllowedCommands();
+  const allowed = await loadAllAllowedCommands(cwd);
   for (const [cmd, flags] of Object.entries(requested)) {
     const allowedFlags = allowed.get(cmd);
     if (!allowedFlags) return false;
@@ -100,7 +100,7 @@ export async function isCommandAllowed(command: string): Promise<boolean> {
   return true;
 }
 
-export async function allowCommand(command: string, scope: "session" | "project" | "global" = "project"): Promise<void> {
+export async function allowCommand(command: string, scope: "session" | "project" | "global" = "project", cwd = process.cwd()): Promise<void> {
   const parsed = parseCommandsForAllowList(command);
   if (scope === "session") {
     const expiresAt = Date.now() + sessionApprovalTTL;
@@ -112,7 +112,7 @@ export async function allowCommand(command: string, scope: "session" | "project"
     }
     return;
   }
-  const file = await loadCommandsFile(commandPath(scope));
+  const file = await loadCommandsFile(commandPath(scope, cwd));
   const now = new Date();
   file.version = version;
   file.entries ??= {};
@@ -126,14 +126,14 @@ export async function allowCommand(command: string, scope: "session" | "project"
       version
     };
   }
-  await writeJSON(commandPath(scope), file);
+  await writeJSON(commandPath(scope, cwd), file);
 }
 
-async function loadAllAllowedTools(): Promise<Set<string>> {
+async function loadAllAllowedTools(cwd: string): Promise<Set<string>> {
   cleanupSessionApprovals();
   const allowed = new Set<string>(sessionTools.keys());
   for (const scope of ["global", "project"] as const) {
-    const file = await loadToolsFile(toolPath(scope));
+    const file = await loadToolsFile(toolPath(scope, cwd));
     for (const [name, entry] of Object.entries(file.entries ?? {})) {
       if (isEntryValid(entry.expires_at, entry.version ?? file.version)) allowed.add(name);
     }
@@ -141,12 +141,12 @@ async function loadAllAllowedTools(): Promise<Set<string>> {
   return allowed;
 }
 
-async function loadAllAllowedCommands(): Promise<Map<string, Set<string>>> {
+async function loadAllAllowedCommands(cwd: string): Promise<Map<string, Set<string>>> {
   cleanupSessionApprovals();
   const allowed = new Map<string, Set<string>>();
   for (const [cmd, entry] of sessionCommands) allowed.set(cmd, new Set(entry.flags));
   for (const scope of ["global", "project"] as const) {
-    const file = await loadCommandsFile(commandPath(scope));
+    const file = await loadCommandsFile(commandPath(scope, cwd));
     for (const [cmd, entry] of Object.entries(file.entries ?? {})) {
       if (!isEntryValid(entry.expires_at, entry.version ?? file.version)) continue;
       const flags = allowed.get(cmd) ?? new Set<string>();
@@ -170,12 +170,12 @@ function isEntryValid(expiresAt?: string, entryVersion?: string): boolean {
   return Number.isFinite(time) && time >= Date.now();
 }
 
-function toolPath(scope: "project" | "global"): string {
-  return scope === "global" ? path.join(configHome(), "allowed_tools.json") : path.join(process.cwd(), ".late", "allowed_tools.json");
+function toolPath(scope: "project" | "global", cwd: string): string {
+  return scope === "global" ? path.join(configHome(), "allowed_tools.json") : path.join(cwd, ".late", "allowed_tools.json");
 }
 
-function commandPath(scope: "project" | "global"): string {
-  return scope === "global" ? path.join(configHome(), "allowed_commands.json") : path.join(process.cwd(), ".late", "allowed_commands.json");
+function commandPath(scope: "project" | "global", cwd: string): string {
+  return scope === "global" ? path.join(configHome(), "allowed_commands.json") : path.join(cwd, ".late", "allowed_commands.json");
 }
 
 async function loadToolsFile(file: string): Promise<PersistedToolsFile> {

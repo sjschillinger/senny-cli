@@ -23,7 +23,7 @@ const defaults: SennyConfig = {
   mcpServers: {}
 };
 
-export async function loadConfig(): Promise<SennyConfig> {
+export async function loadConfig(cwd = process.cwd()): Promise<SennyConfig> {
   const dir = configHome();
   const file = path.join(dir, "config.json");
   await ensureDir(dir);
@@ -36,7 +36,7 @@ export async function loadConfig(): Promise<SennyConfig> {
     await fs.writeFile(file, JSON.stringify(defaults, null, 2), { mode: 0o600 });
   }
 
-  const lateMCP = await loadLateMCPConfig(process.cwd());
+  const lateMCP = await loadLateMCPConfig(cwd);
   const merged: SennyConfig = {
     ...defaults,
     ...fromFile,
