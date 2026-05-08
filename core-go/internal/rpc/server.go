@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"senny/internal/assets"
 	"senny/internal/client"
 	"senny/internal/common"
@@ -15,8 +17,6 @@ import (
 	"senny/internal/mcp"
 	sessionpkg "senny/internal/session"
 	"senny/internal/tool"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -529,7 +529,7 @@ func shellApprovalMiddleware() common.ToolMiddleware {
 				return reason, nil
 			}
 			if analysis.NeedsConfirmation {
-				return fmt.Sprintf("Command requires explicit approval before running. Use: senny allow-command %q [--scope project|global|session]", args.Command), nil
+				return fmt.Sprintf("Command requires explicit approval before running. Use: senny core allow-command %q [project|global|session]", args.Command), nil
 			}
 			return next(ctx, tc)
 		}
