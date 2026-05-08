@@ -211,10 +211,3 @@ func exists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
 }
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
