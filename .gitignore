@@ -9,5 +9,6 @@ yarn-error.log*
 .env.*
 .DS_Store
 references/
+.claude/
 .senny/sessions/
 .senny/permissions.json
