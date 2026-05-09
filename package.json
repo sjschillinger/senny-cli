@@ -1,6 +1,6 @@
 {
   "name": "senny-cli",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "TypeScript agent harness inspired by Late CLI's orchestration model.",
   "type": "module",
   "bin": {
