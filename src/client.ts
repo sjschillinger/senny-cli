@@ -24,7 +24,7 @@ export class OpenAICompatClient {
       stream: true
     };
 
-    const response = await fetch(`${this.options.baseURL.replace(/\/$/, "")}/v1/chat/completions`, {
+    const response = await fetch(chatCompletionsURL(this.options.baseURL), {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -59,6 +59,11 @@ export class OpenAICompatClient {
       }
     }
   }
+}
+
+export function chatCompletionsURL(baseURL: string): string {
+  const trimmed = baseURL.replace(/\/+$/, "");
+  return trimmed.endsWith("/v1") ? `${trimmed}/chat/completions` : `${trimmed}/v1/chat/completions`;
 }
 
 function parseFrame(frame: string): StreamDelta | null {

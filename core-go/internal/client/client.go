@@ -64,7 +64,7 @@ func (c *Client) ChatCompletion(ctx context.Context, req ChatCompletionRequest) 
 		return nil, err
 	}
 
-	url := strings.TrimSuffix(c.cfg.BaseURL, "/") + "/v1/chat/completions"
+	url := chatCompletionsURL(c.cfg.BaseURL)
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(body))
 	if err != nil {
 		return nil, err
@@ -116,7 +116,7 @@ func (c *Client) ChatCompletionStream(ctx context.Context, req ChatCompletionReq
 			return
 		}
 
-		url := strings.TrimSuffix(c.cfg.BaseURL, "/") + "/v1/chat/completions"
+		url := chatCompletionsURL(c.cfg.BaseURL)
 		httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(body))
 		if err != nil {
 			errCh <- err
@@ -324,6 +324,14 @@ func (c *Client) IsLlamaCPP() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.backend == BackendLlamaCPP
+}
+
+func chatCompletionsURL(base string) string {
+	trimmed := strings.TrimRight(base, "/")
+	if strings.HasSuffix(trimmed, "/v1") {
+		return trimmed + "/chat/completions"
+	}
+	return trimmed + "/v1/chat/completions"
 }
 
 func (c *Client) marshalFlattened(req ChatCompletionRequest) ([]byte, error) {

@@ -44,6 +44,8 @@ npm run build
 OPENAI_BASE_URL=http://localhost:8080 senny-cli "inspect this project"
 ```
 
+`OPENAI_BASE_URL` may be either the server root (`http://localhost:11434`) or an OpenAI-style `/v1` base (`http://localhost:11434/v1`). Senny normalizes both forms before calling `/chat/completions`.
+
 Run `senny-cli --help` for flags.
 
 ## Commands

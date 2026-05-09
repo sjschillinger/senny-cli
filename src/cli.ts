@@ -95,7 +95,7 @@ Flags:
   --help         Show help
 
 Environment:
-  OPENAI_BASE_URL   OpenAI-compatible endpoint (default: http://localhost:8080)
+  OPENAI_BASE_URL   OpenAI-compatible endpoint root or /v1 base (default: http://localhost:8080)
   OPENAI_API_KEY    Optional API key
   OPENAI_MODEL      Optional model name
 `);

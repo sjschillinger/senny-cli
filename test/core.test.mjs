@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { compactHistory } from "../dist/compact.js";
+import { chatCompletionsURL } from "../dist/client.js";
 import { readFileTool, targetEditTool, writeFileTool } from "../dist/tools/core.js";
 
 async function tempProject() {
@@ -19,6 +20,13 @@ test("compactHistory preserves recent messages and summarizes older facts", () =
   assert.equal(compacted.history.length, 8);
   assert.match(compacted.note, /Compacted Prior Conversation/);
   assert.match(compacted.note, /message 0/);
+});
+
+test("chatCompletionsURL accepts root or /v1 base URLs", () => {
+  assert.equal(chatCompletionsURL("http://localhost:11434"), "http://localhost:11434/v1/chat/completions");
+  assert.equal(chatCompletionsURL("http://localhost:11434/"), "http://localhost:11434/v1/chat/completions");
+  assert.equal(chatCompletionsURL("http://localhost:11434/v1"), "http://localhost:11434/v1/chat/completions");
+  assert.equal(chatCompletionsURL("http://localhost:11434/v1/"), "http://localhost:11434/v1/chat/completions");
 });
 
 test("target_edit replaces exactly one block", async () => {
