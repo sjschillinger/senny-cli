@@ -147,7 +147,7 @@ export function formatSessionDisplay(meta: SessionMeta, verbose = false): string
   return `${meta.id}\t${truncateRunes(meta.title || "Untitled Session", 40)}\t${formatDate(meta.last_updated, false)}\t${meta.message_count}`.trim();
 }
 
-export function formatResumePrompt(binary = "senny"): string {
+export function formatResumePrompt(binary = "senny-cli"): string {
   return `To resume, use: ${binary} session load <id>`;
 }
 

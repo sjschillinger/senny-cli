@@ -35,4 +35,4 @@ npm run bench:runtime
 
 The benchmark starts `senny-core`, waits briefly, reads wrapper and core RSS, prints JSON, then shuts the core down.
 
-Expect the native-only `senny-late` binary to stay closest to original Late memory usage. The TypeScript-facing `senny` path adds the wrapper runtime overhead.
+Expect the native-only `senny-late` binary to stay closest to original Late memory usage. The TypeScript-facing `senny-cli` path adds the wrapper runtime overhead.

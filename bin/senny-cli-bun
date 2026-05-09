@@ -2,7 +2,7 @@
 set -eu
 
 if ! command -v bun >/dev/null 2>&1; then
-  echo "senny-bun requires Bun on PATH. Install Bun or use the default senny command." >&2
+  echo "senny-cli-bun requires Bun on PATH. Install Bun or use the default senny-cli command." >&2
   exit 127
 fi
 

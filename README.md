@@ -41,34 +41,34 @@ This is a usable TypeScript Senny base. It includes:
 ```bash
 npm install
 npm run build
-OPENAI_BASE_URL=http://localhost:8080 senny "inspect this project"
+OPENAI_BASE_URL=http://localhost:8080 senny-cli "inspect this project"
 ```
 
-Run `senny --help` for flags.
+Run `senny-cli --help` for flags.
 
 ## Commands
 
 ```bash
-senny                         # native Go TUI
-senny --ts                    # TypeScript readline mode
-senny "make a focused change"  # one-shot through native Go core
-senny --ts "prototype path"     # one-shot through TypeScript prototype fallback
-senny session list
-senny session load <id-prefix>
-senny session delete <id-prefix>
-senny worktree list
-senny worktree create <path> [ref]
-senny worktree remove <path>
-senny worktree active
-senny mcp list
-senny migrate senny
-senny core config
-senny core tools --planning
+senny-cli                         # native Go TUI
+senny-cli --ts                    # TypeScript readline mode
+senny-cli "make a focused change"  # one-shot through native Go core
+senny-cli --ts "prototype path"     # one-shot through TypeScript prototype fallback
+senny-cli session list
+senny-cli session load <id-prefix>
+senny-cli session delete <id-prefix>
+senny-cli worktree list
+senny-cli worktree create <path> [ref]
+senny-cli worktree remove <path>
+senny-cli worktree active
+senny-cli mcp list
+senny-cli migrate senny
+senny-cli core config
+senny-cli core tools --planning
 ```
 
 Mutating tools prompt before running in interactive use. Use `--unsafe` or `--yes` only when you intentionally approve those changes.
 
-The default no-argument interactive path launches the native Go TUI for Late-style terminal behavior. The TypeScript readline loop remains available with `senny --ts`.
+The default no-argument interactive path launches the native Go TUI for Late-style terminal behavior. The TypeScript readline loop remains available with `senny-cli --ts`.
 
 ## MCP
 

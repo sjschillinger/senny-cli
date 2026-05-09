@@ -19,13 +19,13 @@ Late-compatible files are still read where needed:
 Copy project state from `.late` into `.senny`:
 
 ```bash
-senny migrate senny
+senny-cli migrate senny
 ```
 
 Overwrite existing `.senny` files:
 
 ```bash
-senny migrate senny --force
+senny-cli migrate senny --force
 ```
 
 The migration command copies files; it does not delete `.late`, so existing Late-compatible workflows keep working.

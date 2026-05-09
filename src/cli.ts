@@ -63,25 +63,25 @@ function parseArgs(argv: string[]): Args {
 
 function printHelp(): void {
   console.log(`Usage:
-  senny [flags]                      Start native Go TUI
-  senny --ts                         Start TypeScript readline mode
-  senny [flags] "<prompt>"            Run one prompt
-  senny session list                  List saved sessions
-  senny session inspect <id-prefix>    Inspect a saved native session audit
-  senny session load <id-prefix>       Resume a session interactively
-  senny session delete <id-prefix>     Delete a session
-  senny worktree list                  List git worktrees
-  senny worktree create <path> [ref]   Create a worktree
-  senny worktree remove <path>         Remove a worktree
-  senny worktree active                Show active worktree
-  senny mcp list                       List configured MCP tools
-  senny migrate senny [--force]         Copy .late project state to .senny
-  senny core config                    Show native core config
-  senny core mcp                       Show native core MCP servers
-  senny core tools [--planning]         Show native core tools
-  senny core permissions               Show native core approvals
-  senny core allow-tool <name> [scope]  Approve a native core tool
-  senny core allow-command <cmd> [scope] Approve a native core command
+  senny-cli [flags]                      Start native Go TUI
+  senny-cli --ts                         Start TypeScript readline mode
+  senny-cli [flags] "<prompt>"            Run one prompt
+  senny-cli session list                  List saved sessions
+  senny-cli session inspect <id-prefix>    Inspect a saved native session audit
+  senny-cli session load <id-prefix>       Resume a session interactively
+  senny-cli session delete <id-prefix>     Delete a session
+  senny-cli worktree list                  List git worktrees
+  senny-cli worktree create <path> [ref]   Create a worktree
+  senny-cli worktree remove <path>         Remove a worktree
+  senny-cli worktree active                Show active worktree
+  senny-cli mcp list                       List configured MCP tools
+  senny-cli migrate senny [--force]         Copy .late project state to .senny
+  senny-cli core config                    Show native core config
+  senny-cli core mcp                       Show native core MCP servers
+  senny-cli core tools [--planning]         Show native core tools
+  senny-cli core permissions               Show native core approvals
+  senny-cli core allow-tool <name> [scope]  Approve a native core tool
+  senny-cli core allow-command <cmd> [scope] Approve a native core command
 
 Flags:
   --cwd <path>   Project root to operate in
@@ -152,7 +152,7 @@ async function handleSession(args: Args): Promise<boolean> {
       return true;
     }
     for (const session of sessions) console.log(formatSessionDisplay(session, args.rest.includes("-v")));
-    console.log(formatResumePrompt("senny"));
+    console.log(formatResumePrompt("senny-cli"));
     return true;
   }
   if (sub === "load") {
