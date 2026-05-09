@@ -108,9 +108,16 @@ Starts a run for a session. Streamed events arrive as `session/event` notificati
 ```json
 {
   "sessionId": "session-...",
-  "prompt": "Implement the feature"
+  "prompt": "Implement the feature",
+  "disableCompaction": false,
+  "forceCompaction": false,
+  "compactThresholdTokens": 24000
 }
 ```
+
+Compaction fields are optional. They let TypeScript hosts disable automatic
+compaction for a single run, force a compaction attempt, or override the
+prompt-token threshold used for automatic compaction.
 
 ### `session/cancel`
 
@@ -123,6 +130,16 @@ Lists in-memory native-core sessions.
 ### `session/delete`
 
 Deletes a saved session by exact ID or prefix.
+
+### `session/inspect`
+
+Returns saved session metadata and a compact audit summary for the JSONL history.
+
+```json
+{
+  "id": "session-..."
+}
+```
 
 ### `worktree/list`
 
@@ -156,6 +173,19 @@ Requests graceful shutdown.
 }
 ```
 
+Lifecycle event types include:
+
+- `tool_started`
+- `tool_finished`
+- `tool_failed`
+- `plan_written`
+- `subagent_started`
+- `subagent_stream`
+- `subagent_finished`
+- `compaction_started`
+- `compaction_finished`
+- `compaction_failed`
+
 ### `approval/request`
 
 Sent by the native core when a tool needs live user approval.
@@ -166,6 +196,9 @@ Sent by the native core when a tool needs live user approval.
   "sessionId": "session-...",
   "kind": "command",
   "command": "npm test",
-  "reason": "Command requires explicit approval before running."
+  "reason": "Command requires explicit approval before running.",
+  "needsApproval": true,
+  "suggestedScope": "once",
+  "scopes": ["once", "session", "project", "global"]
 }
 ```

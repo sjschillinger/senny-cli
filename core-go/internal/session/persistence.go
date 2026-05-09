@@ -17,6 +17,26 @@ type compactBoundary struct {
 	ReplacedIDs []string `json:"replaced_ids"`
 }
 
+const maxHistoryLineBytes = 10 * 1024 * 1024
+
+type CompactAudit struct {
+	SummaryID     string   `json:"summary_id"`
+	ReplacedIDs   []string `json:"replaced_ids"`
+	ReplacedCount int      `json:"replaced_count"`
+}
+
+type HistoryAudit struct {
+	Path                 string         `json:"path"`
+	Messages             int            `json:"messages"`
+	UserMessages         int            `json:"user_messages"`
+	AssistantMessages    int            `json:"assistant_messages"`
+	ToolResultMessages   int            `json:"tool_result_messages"`
+	ToolCalls            int            `json:"tool_calls"`
+	ToolNames            []string       `json:"tool_names"`
+	CompactionBoundaries int            `json:"compaction_boundaries"`
+	Compactions          []CompactAudit `json:"compactions"`
+}
+
 // AppendMessages appends only the messages not yet in the file (by count, via savedCount cursor).
 // On first call to an existing old-format (JSON array) file, it migrates the file to JSONL.
 func AppendMessages(path string, history []client.ChatMessage, savedCount int) error {
@@ -120,6 +140,88 @@ func LoadHistory(path string) ([]client.ChatMessage, error) {
 	return parseJSONL(data)
 }
 
+func InspectHistory(path string) (HistoryAudit, error) {
+	audit := HistoryAudit{Path: path}
+	if !exists(path) {
+		return audit, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return audit, fmt.Errorf("failed to read history file: %w", err)
+	}
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" {
+		return audit, nil
+	}
+	if strings.HasPrefix(trimmed, "[") {
+		var history []client.ChatMessage
+		if err := json.Unmarshal(data, &history); err != nil {
+			return audit, fmt.Errorf("failed to unmarshal history: %w", err)
+		}
+		for _, msg := range history {
+			audit.recordMessage(msg)
+		}
+		return audit, nil
+	}
+	scanner := newHistoryScanner(data)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var probe struct {
+			Type string `json:"__type"`
+		}
+		if err := json.Unmarshal([]byte(line), &probe); err != nil {
+			continue
+		}
+		if probe.Type == "compact_boundary" {
+			var b compactBoundary
+			if err := json.Unmarshal([]byte(line), &b); err != nil {
+				continue
+			}
+			audit.CompactionBoundaries++
+			audit.Compactions = append(audit.Compactions, CompactAudit{
+				SummaryID:     b.SummaryID,
+				ReplacedIDs:   b.ReplacedIDs,
+				ReplacedCount: len(b.ReplacedIDs),
+			})
+			continue
+		}
+		var msg client.ChatMessage
+		if err := json.Unmarshal([]byte(line), &msg); err != nil {
+			continue
+		}
+		audit.recordMessage(msg)
+	}
+	return audit, scanner.Err()
+}
+
+func (a *HistoryAudit) recordMessage(msg client.ChatMessage) {
+	a.Messages++
+	switch msg.Role {
+	case "user":
+		a.UserMessages++
+	case "assistant":
+		a.AssistantMessages++
+	case "tool":
+		a.ToolResultMessages++
+	}
+	if len(msg.ToolCalls) > 0 {
+		seen := make(map[string]bool, len(a.ToolNames))
+		for _, name := range a.ToolNames {
+			seen[name] = true
+		}
+		for _, tc := range msg.ToolCalls {
+			a.ToolCalls++
+			if tc.Function.Name != "" && !seen[tc.Function.Name] {
+				a.ToolNames = append(a.ToolNames, tc.Function.Name)
+				seen[tc.Function.Name] = true
+			}
+		}
+	}
+}
+
 // SaveHistory is kept for callers that still use the old interface (e.g. tests).
 // It writes the full history as JSONL.
 func SaveHistory(path string, history []client.ChatMessage) error {
@@ -148,7 +250,7 @@ func SaveHistory(path string, history []client.ChatMessage) error {
 }
 
 func parseJSONL(data []byte) ([]client.ChatMessage, error) {
-	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	scanner := newHistoryScanner(data)
 	var messages []client.ChatMessage
 	// Track messages by ID so we can apply compact boundaries.
 	byID := make(map[string]int) // id → index in messages slice (-1 if removed)
@@ -195,6 +297,12 @@ func parseJSONL(data []byte) ([]client.ChatMessage, error) {
 	}
 
 	return messages, nil
+}
+
+func newHistoryScanner(data []byte) *bufio.Scanner {
+	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	scanner.Buffer(make([]byte, 64*1024), maxHistoryLineBytes)
+	return scanner
 }
 
 func isJSONArray(path string) bool {

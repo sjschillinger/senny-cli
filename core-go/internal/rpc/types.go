@@ -52,8 +52,11 @@ type CreateSessionResult struct {
 }
 
 type RunParams struct {
-	SessionID string `json:"sessionId"`
-	Prompt    string `json:"prompt"`
+	SessionID              string `json:"sessionId"`
+	Prompt                 string `json:"prompt"`
+	DisableCompaction      bool   `json:"disableCompaction,omitempty"`
+	ForceCompaction        bool   `json:"forceCompaction,omitempty"`
+	CompactThresholdTokens int    `json:"compactThresholdTokens,omitempty"`
 }
 
 type RunResult struct {
@@ -66,6 +69,10 @@ type CancelParams struct {
 }
 
 type DeleteSessionParams struct {
+	ID string `json:"id"`
+}
+
+type InspectSessionParams struct {
 	ID string `json:"id"`
 }
 
@@ -142,11 +149,15 @@ type PermissionCommandParams struct {
 }
 
 type ApprovalRequest struct {
-	ID        string `json:"id"`
-	SessionID string `json:"sessionId"`
-	Kind      string `json:"kind"`
-	Command   string `json:"command"`
-	Reason    string `json:"reason,omitempty"`
+	ID             string                     `json:"id"`
+	SessionID      string                     `json:"sessionId"`
+	Kind           string                     `json:"kind"`
+	Command        string                     `json:"command"`
+	Reason         string                     `json:"reason,omitempty"`
+	NeedsApproval  bool                       `json:"needsApproval,omitempty"`
+	SuggestedScope string                     `json:"suggestedScope,omitempty"`
+	Scopes         []string                   `json:"scopes,omitempty"`
+	Allowed        map[string]map[string]bool `json:"allowed,omitempty"`
 }
 
 type ApprovalRespondParams struct {

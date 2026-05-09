@@ -48,6 +48,8 @@ test("SennyCoreClient exposes native config, MCP, tools, and permissions", { tim
 
     const tools = await client.listTools({ cwd, planning: false });
     assert.equal(tools.some((tool) => tool.name === "target_edit"), true);
+    const planningTools = await client.listTools({ cwd, planning: true });
+    assert.equal(planningTools.some((tool) => tool.name === "spawn_subagent"), true);
 
     assert.equal(await client.allowTool("write_file", "project", cwd), true);
     assert.equal(await client.allowCommand("git log --oneline", "project", cwd), true);
@@ -111,6 +113,52 @@ test("SennyCoreClient responds to core approval requests", { timeout: 5000 }, as
     });
     const logged = JSON.parse(await readFile(logPath, "utf8"));
     assert.deepEqual(logged, { id: "approval-1", approved: true, scope: "project" });
+  } finally {
+    await client.shutdown().catch(() => {});
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("SennyCoreClient exposes session inspection and run compaction options", { timeout: 5000 }, async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "senny-core-inspect-"));
+  const logPath = path.join(cwd, "run.json");
+  const fakeCore = path.join(cwd, "fake-core.mjs");
+  await writeFile(fakeCore, `
+    import readline from "node:readline";
+    import { writeFile } from "node:fs/promises";
+    const logPath = ${JSON.stringify(logPath)};
+    const rl = readline.createInterface({ input: process.stdin });
+    function send(msg) { process.stdout.write(JSON.stringify(msg) + "\\n"); }
+    rl.on("line", async (line) => {
+      const req = JSON.parse(line);
+      if (req.method === "initialize") send({ jsonrpc: "2.0", id: req.id, result: { protocolVersion: "2026-05-08", serverName: "fake", serverVersion: "0", capabilities: ["session_inspect"] } });
+      else if (req.method === "session/create") send({ jsonrpc: "2.0", id: req.id, result: { sessionId: "fake-session", cwd: process.cwd() } });
+      else if (req.method === "session/run") {
+        await writeFile(logPath, JSON.stringify(req.params));
+        send({ jsonrpc: "2.0", id: req.id, result: { sessionId: "fake-session", status: "started" } });
+        send({ jsonrpc: "2.0", method: "session/event", params: { sessionId: "fake-session", type: "compaction_started" } });
+        send({ jsonrpc: "2.0", method: "session/event", params: { sessionId: "fake-session", type: "done", content: "ok" } });
+      } else if (req.method === "session/inspect") {
+        send({ jsonrpc: "2.0", id: req.id, result: { meta: { id: req.params.id }, audit: { path: "history.json", messages: 1, user_messages: 1, assistant_messages: 0, tool_result_messages: 0, tool_calls: 0, tool_names: [], compaction_boundaries: 0, compactions: [] } } });
+      } else if (req.method === "shutdown") {
+        send({ jsonrpc: "2.0", id: req.id, result: { status: "ok" } });
+        process.exit(0);
+      }
+    });
+  `);
+
+  const client = await SennyCoreClient.start({ command: process.execPath, args: [fakeCore], cwd });
+  const events = [];
+  client.on("event", (event) => events.push(event));
+  try {
+    const session = await client.createSession({ cwd });
+    await session.run("compact please", { forceCompaction: true, compactThresholdTokens: 10 });
+    await waitFor(() => events.some((event) => event.type === "done"));
+    const logged = JSON.parse(await readFile(logPath, "utf8"));
+    assert.equal(logged.forceCompaction, true);
+    assert.equal(logged.compactThresholdTokens, 10);
+    const inspected = await client.inspectSession("fake-session");
+    assert.equal(inspected.audit.messages, 1);
   } finally {
     await client.shutdown().catch(() => {});
     await rm(cwd, { recursive: true, force: true });

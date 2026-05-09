@@ -160,6 +160,7 @@ func (o *BaseOrchestrator) Execute(text string) (string, error) {
 			}
 		},
 		o.middlewares,
+		nil,
 	)
 
 	if err != nil {
@@ -227,6 +228,7 @@ func (o *BaseOrchestrator) run() {
 			}
 		},
 		o.middlewares,
+		nil,
 	)
 
 	// Reset accumulator after finished or ready for next turn

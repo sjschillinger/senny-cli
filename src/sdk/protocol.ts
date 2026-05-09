@@ -40,6 +40,12 @@ export interface RunResult {
   status: string;
 }
 
+export interface RunOptions {
+  disableCompaction?: boolean;
+  forceCompaction?: boolean;
+  compactThresholdTokens?: number;
+}
+
 export interface CoreStreamDelta {
   content: string;
   reasoning_content?: string;
@@ -57,6 +63,20 @@ export type CoreEvent =
   | { sessionId: string; type: "turn_start"; turn?: number }
   | { sessionId: string; type: "turn_end" }
   | { sessionId: string; type: "stream"; delta: CoreStreamDelta }
+  | { sessionId: string; type: "tool_started"; id?: string; name: string; message?: string }
+  | { sessionId: string; type: "tool_finished"; id?: string; name: string; message?: string }
+  | { sessionId: string; type: "tool_failed"; id?: string; name: string; message?: string; error?: string }
+  | { sessionId: string; type: "plan_written"; id?: string; name: string; message?: string }
+  | { sessionId: string; type: "subagent_started"; goal: string; agent_type?: string }
+  | { sessionId: string; type: "subagent_stream"; delta: CoreStreamDelta }
+  | { sessionId: string; type: "subagent_finished"; status: string; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } }
+  | { sessionId: string; type: "subagent_tool_started"; id?: string; name: string; message?: string }
+  | { sessionId: string; type: "subagent_tool_finished"; id?: string; name: string; message?: string }
+  | { sessionId: string; type: "subagent_tool_failed"; id?: string; name: string; message?: string; error?: string }
+  | { sessionId: string; type: "subagent_plan_written"; id?: string; name: string; message?: string }
+  | { sessionId: string; type: "compaction_started" }
+  | { sessionId: string; type: "compaction_finished"; replaced_count?: number; summary_id?: string }
+  | { sessionId: string; type: "compaction_failed"; error?: string }
   | { sessionId: string; type: "done"; content: string; exit_code?: number; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } }
   | { sessionId: string; type: "error"; message: string; exit_code?: number }
   | { sessionId: string; type: "cancelled"; exit_code?: number };
@@ -110,6 +130,21 @@ export interface CorePermissions {
   commands: Record<string, Record<string, boolean>>;
 }
 
+export interface SessionInspectResult {
+  meta: SessionMeta;
+  audit: {
+    path: string;
+    messages: number;
+    user_messages: number;
+    assistant_messages: number;
+    tool_result_messages: number;
+    tool_calls: number;
+    tool_names: string[];
+    compaction_boundaries: number;
+    compactions: Array<{ summary_id: string; replaced_ids: string[]; replaced_count: number }>;
+  };
+}
+
 export type PermissionScope = "session" | "project" | "global";
 
 export type ApprovalScope = PermissionScope | "once";
@@ -120,6 +155,10 @@ export interface ApprovalRequest {
   kind: "command";
   command: string;
   reason?: string;
+  needsApproval?: boolean;
+  suggestedScope?: ApprovalScope;
+  scopes?: ApprovalScope[];
+  allowed?: Record<string, Record<string, boolean>>;
 }
 
 export interface ApprovalResponse {

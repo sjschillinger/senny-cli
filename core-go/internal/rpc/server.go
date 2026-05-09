@@ -83,7 +83,7 @@ func (s *Server) handle(ctx context.Context, req Request) {
 			ProtocolVersion: "2026-05-08",
 			ServerName:      "senny-core",
 			ServerVersion:   "0.1.0",
-			Capabilities:    []string{"sessions", "run", "cancel", "events", "config", "mcp", "tools", "permissions", "approvals"},
+			Capabilities:    []string{"sessions", "run", "cancel", "events", "config", "mcp", "tools", "permissions", "approvals", "session_inspect", "lifecycle_events"},
 		}})
 	case "config/get":
 		s.write(Response{JSONRPC: "2.0", ID: req.ID, Result: s.configResult()})
@@ -177,6 +177,18 @@ func (s *Server) handle(ctx context.Context, req Request) {
 			return
 		}
 		s.write(Response{JSONRPC: "2.0", ID: req.ID, Result: map[string]bool{"deleted": true}})
+	case "session/inspect":
+		var params InspectSessionParams
+		if err := decode(req.Params, &params); err != nil {
+			s.writeErr(req.ID, -32602, err)
+			return
+		}
+		result, err := inspectSavedSession(params.ID)
+		if err != nil {
+			s.writeErr(req.ID, -32000, err)
+			return
+		}
+		s.write(Response{JSONRPC: "2.0", ID: req.ID, Result: result})
 	case "session/run":
 		var params RunParams
 		if err := decode(req.Params, &params); err != nil {
@@ -290,6 +302,9 @@ func (s *Server) listTools(params ToolsListParams) ([]ToolInfo, error) {
 		cfg, _ := appconfig.LoadConfig()
 		reg := tool.NewRegistry()
 		executor.RegisterTools(reg, cfg.EnabledTools, params.Planning)
+		if params.Planning && cfg.EnabledTools["spawn_subagent"] {
+			reg.Register(tool.SpawnSubagentTool{})
+		}
 		for _, t := range reg.All() {
 			result = append(result, ToolInfo{Name: t.Name(), Description: t.Description(), Parameters: t.Parameters()})
 		}
@@ -392,6 +407,14 @@ func (s *Server) createSession(params CreateSessionParams) *Session {
 	session := &Session{ID: id, CWD: cwd, Model: params.Model, Title: "Untitled Session", CreatedAt: now, UpdatedAt: now}
 	if params.Model != "__mock__" {
 		session.Late = newLateSession(id, cwd, params.Model)
+		cfg, _ := appconfig.LoadConfig()
+		if cfg.EnabledTools["spawn_subagent"] {
+			session.Late.Registry.Register(tool.SpawnSubagentTool{
+				Runner: func(ctx context.Context, goal string, ctxFiles []string, agentType string) (string, error) {
+					return s.runRPCSubagent(ctx, session.ID, session.CWD, goal, ctxFiles, agentType)
+				},
+			})
+		}
 	}
 	s.mu.Lock()
 	s.sessions[id] = session
@@ -447,6 +470,24 @@ func deleteSavedSession(id string) error {
 	return os.Remove(filepath.Join(sessionDir(), meta.ID+".meta.json"))
 }
 
+func inspectSavedSession(id string) (map[string]any, error) {
+	meta, err := sessionpkg.LoadSessionMeta(id)
+	if err != nil {
+		return nil, err
+	}
+	if meta == nil {
+		return nil, fmt.Errorf("session not found: %s", id)
+	}
+	audit, err := sessionpkg.InspectHistory(meta.HistoryPath)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"meta":  meta,
+		"audit": audit,
+	}, nil
+}
+
 func (s *Server) run(parent context.Context, params RunParams) error {
 	s.mu.Lock()
 	session := s.sessions[params.SessionID]
@@ -484,6 +525,7 @@ func (s *Server) run(parent context.Context, params RunParams) error {
 						s.notify("session/event", map[string]any{"sessionId": params.SessionID, "type": "stream", "delta": result})
 					},
 					[]common.ToolMiddleware{s.shellApprovalMiddleware(params.SessionID)},
+					s.runHooks(params),
 				)
 				if err != nil {
 					return err
@@ -515,6 +557,109 @@ func (s *Server) run(parent context.Context, params RunParams) error {
 		}
 	}()
 	return nil
+}
+
+func (s *Server) runHooks(params RunParams) *executor.RunHooks {
+	return &executor.RunHooks{
+		DisableCompaction:      params.DisableCompaction,
+		ForceCompaction:        params.ForceCompaction,
+		CompactThresholdTokens: params.CompactThresholdTokens,
+		OnToolEvent: func(event executor.ToolEvent) {
+			payload := map[string]any{
+				"sessionId": params.SessionID,
+				"type":      event.Type,
+				"name":      event.Name,
+				"id":        event.ID,
+			}
+			if event.Message != "" {
+				payload["message"] = event.Message
+			}
+			if event.Error != "" {
+				payload["error"] = event.Error
+			}
+			s.notify("session/event", payload)
+		},
+		OnCompactionEvent: func(event executor.CompactionEvent) {
+			payload := map[string]any{
+				"sessionId": params.SessionID,
+				"type":      event.Type,
+			}
+			if event.ReplacedCount > 0 {
+				payload["replaced_count"] = event.ReplacedCount
+			}
+			if event.SummaryID != "" {
+				payload["summary_id"] = event.SummaryID
+			}
+			if event.Error != "" {
+				payload["error"] = event.Error
+			}
+			s.notify("session/event", payload)
+		},
+	}
+}
+
+func (s *Server) runRPCSubagent(ctx context.Context, parentSessionID, cwd, goal string, ctxFiles []string, agentType string) (string, error) {
+	if agentType == "" {
+		agentType = "coder"
+	}
+	if agentType != "coder" {
+		return "", fmt.Errorf("unknown agent type: %s", agentType)
+	}
+	s.notify("session/event", map[string]any{"sessionId": parentSessionID, "type": "subagent_started", "goal": goal, "agent_type": agentType})
+
+	cfg, _ := appconfig.LoadConfig()
+	openAI := appconfig.ResolveOpenAISettings(cfg)
+	settings := appconfig.ResolveSubagentSettings(cfg, openAI)
+	c := client.NewClient(client.Config{BaseURL: settings.BaseURL, APIKey: settings.APIKey, Model: settings.Model})
+	c.DiscoverBackend(ctx)
+	promptBytes, _ := assets.PromptsFS.ReadFile("prompts/instruction-coding.md")
+	sub := sessionpkg.New(c, "", []client.ChatMessage{}, string(promptBytes), true)
+	executor.RegisterTools(sub.Registry, cfg.EnabledTools, false, tool.NewFileCache())
+
+	var initial strings.Builder
+	initial.WriteString("Goal: ")
+	initial.WriteString(goal)
+	initial.WriteString("\n\nReturn your final answer with these sections: Status, Files changed, Tests run, Blockers, Summary.\n")
+	if len(ctxFiles) > 0 {
+		initial.WriteString("\nContext Files:\n")
+		for _, f := range ctxFiles {
+			clean := filepath.Clean(f)
+			if !tool.IsSafePath(clean) {
+				continue
+			}
+			data, err := os.ReadFile(clean)
+			if err == nil {
+				initial.WriteString(fmt.Sprintf("- %s:\n```\n%s\n```\n", clean, string(data)))
+			}
+		}
+	}
+	if err := sub.AddUserMessage(initial.String()); err != nil {
+		return "", err
+	}
+
+	res, usage, err := executor.RunLoop(ctx, sub, 200, nil, nil, nil, func(result common.StreamResult) {
+		s.notify("session/event", map[string]any{"sessionId": parentSessionID, "type": "subagent_stream", "delta": result})
+	}, []common.ToolMiddleware{s.shellApprovalMiddleware(parentSessionID)}, &executor.RunHooks{
+		OnToolEvent: func(event executor.ToolEvent) {
+			s.notify("session/event", map[string]any{
+				"sessionId": parentSessionID,
+				"type":      "subagent_" + event.Type,
+				"name":      event.Name,
+				"id":        event.ID,
+				"message":   event.Message,
+				"error":     event.Error,
+			})
+		},
+	})
+	status := "completed"
+	if err != nil {
+		status = "failed"
+	}
+	s.notify("session/event", map[string]any{"sessionId": parentSessionID, "type": "subagent_finished", "status": status, "usage": usage})
+	if err != nil {
+		return "", err
+	}
+	return res, nil
 }
 
 func newLateSession(id, cwd, model string) *sessionpkg.Session {
@@ -599,10 +744,14 @@ func (s *Server) shellApprovalMiddleware(sessionID string) common.ToolMiddleware
 			}
 			if analysis.NeedsConfirmation {
 				decision, err := s.requestApproval(ctx, ApprovalRequest{
-					SessionID: sessionID,
-					Kind:      "command",
-					Command:   args.Command,
-					Reason:    "Command requires explicit approval before running.",
+					SessionID:      sessionID,
+					Kind:           "command",
+					Command:        args.Command,
+					Reason:         "Command requires explicit approval before running.",
+					NeedsApproval:  true,
+					SuggestedScope: "once",
+					Scopes:         []string{"once", "session", "project", "global"},
+					Allowed:        allowed,
 				})
 				if err != nil {
 					return fmt.Sprintf("Command approval failed: %v", err), nil

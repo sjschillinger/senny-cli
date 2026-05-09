@@ -16,6 +16,8 @@ import type {
   PermissionScope,
   CoreConfig,
   RunResult,
+  RunOptions,
+  SessionInspectResult,
   SessionMeta,
   CorePermissions,
   CoreToolInfo,
@@ -128,6 +130,10 @@ export class SennyCoreClient extends EventEmitter {
     return result.deleted;
   }
 
+  async inspectSession(id: string): Promise<SessionInspectResult> {
+    return await this.request<SessionInspectResult>("session/inspect", { id });
+  }
+
   async listWorktrees(): Promise<WorktreeInfo[]> {
     return await this.request<WorktreeInfo[]>("worktree/list", {});
   }
@@ -220,8 +226,8 @@ export class CoreSession {
     readonly cwd: string
   ) {}
 
-  async run(prompt: string): Promise<RunResult> {
-    return await this.client.request<RunResult>("session/run", { sessionId: this.id, prompt });
+  async run(prompt: string, options: RunOptions = {}): Promise<RunResult> {
+    return await this.client.request<RunResult>("session/run", { sessionId: this.id, prompt, ...options });
   }
 
   async cancel(): Promise<boolean> {

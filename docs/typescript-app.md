@@ -20,11 +20,20 @@ try {
 
   client.on("event", (event) => {
     if (event.type === "stream") {
-      process.stdout.write(String(event.delta ?? ""));
+      process.stdout.write(event.delta.content ?? "");
+    } else if (event.type === "tool_started") {
+      console.log(`tool: ${event.name}`);
+    } else if (event.type === "subagent_started") {
+      console.log(`subagent: ${event.goal}`);
     }
   });
 
-  await session.run("Inspect this project");
+  await session.run("Inspect this project", {
+    compactThresholdTokens: 24000
+  });
+
+  const audit = await client.inspectSession(session.id);
+  console.log(audit.audit.tool_names);
 } finally {
   await client.shutdown();
 }
@@ -40,7 +49,9 @@ Useful SDK calls:
 - `allowCommand(command, scope, cwd)`
 - `respondApproval(id, response)`
 - `createSession({ cwd, model, resume })`
+- `session.run(prompt, { disableCompaction, forceCompaction, compactThresholdTokens })`
 - `listSessions()`
+- `inspectSession(id)`
 - `deleteSession(id)`
 - `listWorktrees()`
 

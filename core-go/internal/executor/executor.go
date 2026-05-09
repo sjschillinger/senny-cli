@@ -27,6 +27,29 @@ type StreamAccumulator struct {
 	FinishReason string
 }
 
+type ToolEvent struct {
+	Type    string
+	Name    string
+	ID      string
+	Message string
+	Error   string
+}
+
+type CompactionEvent struct {
+	Type          string
+	ReplacedCount int
+	SummaryID     string
+	Error         string
+}
+
+type RunHooks struct {
+	OnToolEvent            func(ToolEvent)
+	OnCompactionEvent      func(CompactionEvent)
+	DisableCompaction      bool
+	ForceCompaction        bool
+	CompactThresholdTokens int
+}
+
 // Append merges a single streaming delta into the accumulated state.
 func (a *StreamAccumulator) Append(res common.StreamResult) {
 	a.Content += res.Content
@@ -69,7 +92,11 @@ func (a *StreamAccumulator) Reset() {
 // ExecuteToolCalls runs a slice of tool calls against the session.
 // It uses the provided middlewares to wrap the base tool execution.
 // Results are added to the session history.
-func ExecuteToolCalls(ctx context.Context, sess *session.Session, toolCalls []client.ToolCall, middlewares []common.ToolMiddleware) error {
+func ExecuteToolCalls(ctx context.Context, sess *session.Session, toolCalls []client.ToolCall, middlewares []common.ToolMiddleware, hookArgs ...*RunHooks) error {
+	var hooks *RunHooks
+	if len(hookArgs) > 0 {
+		hooks = hookArgs[0]
+	}
 	// Base execution logic
 	baseRunner := func(ctx context.Context, tc client.ToolCall) (string, error) {
 		t := sess.Registry.Get(tc.Function.Name)
@@ -86,6 +113,7 @@ func ExecuteToolCalls(ctx context.Context, sess *session.Session, toolCalls []cl
 	}
 
 	for _, tc := range toolCalls {
+		emitToolEvent(hooks, ToolEvent{Type: "tool_started", Name: tc.Function.Name, ID: tc.ID, Message: toolCallString(sess, tc)})
 		// Fail-closed: if no confirmation middleware is provided, do not
 		// execute shell commands (they must be explicitly approved by a
 		// middleware such as the TUI confirm middleware).
@@ -96,20 +124,58 @@ func ExecuteToolCalls(ctx context.Context, sess *session.Session, toolCalls []cl
 					if err := sess.AddToolResultMessage(tc.ID, result); err != nil {
 						return err
 					}
+					emitToolEvent(hooks, ToolEvent{Type: "tool_finished", Name: tc.Function.Name, ID: tc.ID, Message: result})
 					continue
 				}
 			}
 		}
 
 		result, err := runner(ctx, tc)
+		eventType := "tool_finished"
 		if err != nil {
+			eventType = "tool_failed"
 			result = fmt.Sprintf("Error executing tool %s: %v", tc.Function.Name, err)
 		}
 		if err := sess.AddToolResultMessage(tc.ID, result); err != nil {
 			return err
 		}
+		if tc.Function.Name == "write_implementation_plan" && err == nil {
+			eventType = "plan_written"
+		}
+		toolEvent := ToolEvent{Type: eventType, Name: tc.Function.Name, ID: tc.ID, Message: result}
+		if err != nil {
+			toolEvent.Error = err.Error()
+		}
+		emitToolEvent(hooks, toolEvent)
 	}
 	return nil
+}
+
+func toolCallString(sess *session.Session, tc client.ToolCall) string {
+	if t := sess.Registry.Get(tc.Function.Name); t != nil {
+		return t.CallString(json.RawMessage(tc.Function.Arguments))
+	}
+	return tc.Function.Name
+}
+
+func emitToolEvent(hooks *RunHooks, event ToolEvent) {
+	if hooks != nil && hooks.OnToolEvent != nil {
+		hooks.OnToolEvent(event)
+	}
+}
+
+func emitCompactionEvent(hooks *RunHooks, event CompactionEvent) {
+	if hooks != nil && hooks.OnCompactionEvent != nil {
+		hooks.OnCompactionEvent(event)
+	}
+}
+
+func addUsage(total client.Usage, next client.Usage) client.Usage {
+	return client.Usage{
+		PromptTokens:     total.PromptTokens + next.PromptTokens,
+		CompletionTokens: total.CompletionTokens + next.CompletionTokens,
+		TotalTokens:      total.TotalTokens + next.TotalTokens,
+	}
 }
 
 // --- Tool Registration ---
@@ -237,10 +303,13 @@ func RunLoop(
 	onEndTurn func(),
 	onStreamChunk func(common.StreamResult),
 	middlewares []common.ToolMiddleware,
+	hooks *RunHooks,
 ) (string, client.Usage, error) {
 	var lastContent string
 	var cumUsage client.Usage
+	var lastUsage client.Usage
 	var lastCompactTurn = -3 // allow compaction from the first eligible turn
+	forceCompaction := hooks != nil && hooks.ForceCompaction
 
 	for i := 0; maxTurns <= 0 || i < maxTurns; i++ {
 		if onStartTurn != nil {
@@ -254,7 +323,8 @@ func RunLoop(
 		}
 
 		if acc.Usage.TotalTokens > 0 {
-			cumUsage = acc.Usage
+			cumUsage = addUsage(cumUsage, acc.Usage)
+			lastUsage = acc.Usage
 		}
 
 		if acc.FinishReason == "length" {
@@ -284,15 +354,29 @@ func RunLoop(
 		}
 
 		// Attempt compaction if token usage is high and enough turns have passed.
-		if cumUsage.PromptTokens > 0 && (i-lastCompactTurn) >= 3 {
+		if !compactionDisabled(hooks) && (lastUsage.PromptTokens > 0 || forceCompaction) && (i-lastCompactTurn) >= 3 {
 			ctxSize := sess.Client().ContextSize()
-			if compact.ShouldCompact(cumUsage.PromptTokens, ctxSize) {
+			shouldCompact := compact.ShouldCompact(lastUsage.PromptTokens, ctxSize)
+			if hooks != nil && hooks.CompactThresholdTokens > 0 {
+				shouldCompact = lastUsage.PromptTokens >= hooks.CompactThresholdTokens
+			}
+			if forceCompaction {
+				shouldCompact = true
+				forceCompaction = false
+			}
+			if shouldCompact {
+				emitCompactionEvent(hooks, CompactionEvent{Type: "compaction_started"})
 				if summary, replacedIDs, cerr := compact.CompactSession(ctx, sess.Client(), sess.History, sess.SystemPrompt()); cerr == nil {
 					if werr := session.WriteCompactBoundary(sess.HistoryPath, replacedIDs, summary); werr == nil {
 						sess.ApplyCompaction(replacedIDs, summary)
 						lastCompactTurn = i
+						emitCompactionEvent(hooks, CompactionEvent{Type: "compaction_finished", ReplacedCount: len(replacedIDs), SummaryID: summary.ID})
 						fmt.Fprintf(os.Stderr, "[compacted: %d messages → 1 summary]\n", len(replacedIDs))
+					} else {
+						emitCompactionEvent(hooks, CompactionEvent{Type: "compaction_failed", Error: werr.Error()})
 					}
+				} else {
+					emitCompactionEvent(hooks, CompactionEvent{Type: "compaction_failed", Error: cerr.Error()})
 				}
 			}
 		}
@@ -310,7 +394,7 @@ func RunLoop(
 		default:
 		}
 
-		if err := ExecuteToolCalls(ctx, sess, acc.ToolCalls, middlewares); err != nil {
+		if err := ExecuteToolCalls(ctx, sess, acc.ToolCalls, middlewares, hooks); err != nil {
 			return "", cumUsage, err
 		}
 
@@ -323,4 +407,8 @@ func RunLoop(
 	}
 
 	return lastContent + "\n\n(Terminated due to max turns limit)", cumUsage, nil
+}
+
+func compactionDisabled(hooks *RunHooks) bool {
+	return hooks != nil && hooks.DisableCompaction
 }

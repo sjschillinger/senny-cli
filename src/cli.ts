@@ -30,10 +30,13 @@ interface Args {
   core: boolean;
   ts: boolean;
   help: boolean;
+  noCompact: boolean;
+  forceCompact: boolean;
+  compactThresholdTokens?: number;
 }
 
 function parseArgs(argv: string[]): Args {
-  const out: Args = { command: "", rest: [], prompt: "", cwd: process.cwd(), unsafe: false, yes: false, core: false, ts: false, help: false };
+  const out: Args = { command: "", rest: [], prompt: "", cwd: process.cwd(), unsafe: false, yes: false, core: false, ts: false, help: false, noCompact: false, forceCompact: false };
   const rest: string[] = [];
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -41,6 +44,13 @@ function parseArgs(argv: string[]): Args {
     else if (arg === "--unsafe") out.unsafe = true;
     else if (arg === "--core") out.core = true;
     else if (arg === "--ts") out.ts = true;
+    else if (arg === "--no-compact") out.noCompact = true;
+    else if (arg === "--force-compact") out.forceCompact = true;
+    else if (arg === "--compact-threshold") {
+      const value = Number(argv[++i]);
+      if (!Number.isFinite(value) || value < 1) throw new Error("--compact-threshold requires a positive token count");
+      out.compactThresholdTokens = value;
+    }
     else if (arg === "-y" || arg === "--yes") out.yes = true;
     else if (arg === "--cwd") out.cwd = path.resolve(argv[++i] ?? out.cwd);
     else rest.push(arg);
@@ -57,6 +67,7 @@ function printHelp(): void {
   senny --ts                         Start TypeScript readline mode
   senny [flags] "<prompt>"            Run one prompt
   senny session list                  List saved sessions
+  senny session inspect <id-prefix>    Inspect a saved native session audit
   senny session load <id-prefix>       Resume a session interactively
   senny session delete <id-prefix>     Delete a session
   senny worktree list                  List git worktrees
@@ -78,6 +89,9 @@ Flags:
   -y, --yes      Approve mutating tools when prompted by the agent
   --core         Route one-shot prompt through native Go core
   --ts           Use TypeScript readline/prototype path
+  --no-compact   Disable native core compaction for this run
+  --force-compact Force native core compaction when possible
+  --compact-threshold <tokens> Override compaction prompt-token threshold
   --help         Show help
 
 Environment:
@@ -153,6 +167,12 @@ async function handleSession(args: Args): Promise<boolean> {
     const ok = await deleteSession(args.rest[1] ?? "");
     if (!ok) throw new Error(`session not found: ${args.rest[1] ?? ""}`);
     console.log("Deleted session.");
+    return true;
+  }
+  if (sub === "inspect") {
+    const id = args.rest[1] ?? "";
+    if (!id) throw new Error("session inspect requires a session id or prefix");
+    await withCore(args, async (client) => printJSON(await client.inspectSession(id)));
     return true;
   }
   printHelp();
@@ -319,6 +339,7 @@ async function approveCoreCommandInTerminal(request: ApprovalRequest, args: Args
   try {
     console.error(`\nCommand approval required: ${request.command}`);
     if (request.reason) console.error(request.reason);
+    if (request.suggestedScope) console.error(`suggested scope: ${request.suggestedScope}`);
     const answer = (await rl.question("Run this command? [y]es / [n]o / [s]ession / [p]roject / [g]lobal: ")).trim().toLowerCase();
     if (answer === "y" || answer === "yes") return { approved: true, scope: "once" };
     if (answer === "s" || answer === "session") return { approved: true, scope: "session" };
@@ -390,6 +411,22 @@ async function main(): Promise<void> {
         process.exitCode = event.exit_code ?? 4;
         clearWatchdog();
         finishCoreRun();
+      } else if (event.type === "tool_started") {
+        process.stderr.write(`[tool] ${event.name}${event.message ? `: ${event.message}` : ""}\n`);
+      } else if (event.type === "plan_written") {
+        process.stderr.write("[plan written]\n");
+      } else if (event.type === "subagent_started") {
+        process.stderr.write(`[subagent] started: ${event.goal}\n`);
+      } else if (event.type === "subagent_finished") {
+        process.stderr.write(`[subagent] ${event.status}\n`);
+      } else if (event.type === "compaction_started") {
+        process.stderr.write("[compaction] started\n");
+      } else if (event.type === "compaction_finished") {
+        process.stderr.write(`[compaction] replaced ${event.replaced_count ?? 0} messages\n`);
+      } else if (event.type === "compaction_failed") {
+        process.stderr.write(`[compaction failed] ${event.error ?? "unknown error"}\n`);
+      } else if (event.type === "tool_failed") {
+        process.stderr.write(`[tool failed] ${event.name}: ${event.error ?? event.message ?? ""}\n`);
       }
     });
     let coreSession: Awaited<ReturnType<typeof client.createSession>>;
@@ -400,7 +437,11 @@ async function main(): Promise<void> {
     try {
       coreSession = await client.createSession({ cwd: args.cwd });
       resetWatchdog();
-      await coreSession.run(args.prompt);
+      await coreSession.run(args.prompt, {
+        disableCompaction: args.noCompact,
+        forceCompaction: args.forceCompact,
+        compactThresholdTokens: args.compactThresholdTokens
+      });
       await coreDone;
     } finally {
       clearWatchdog();
