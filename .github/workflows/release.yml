@@ -2,6 +2,12 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_npm:
+        description: "Publish package to npm. Requires running this workflow on a tag with NPM_TOKEN configured."
+        required: false
+        default: false
+        type: boolean
   push:
     tags:
       - "v*"
@@ -41,7 +47,7 @@ jobs:
             core-go/bin/*
 
   publish-npm:
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_npm == true && startsWith(github.ref, 'refs/tags/')
     needs: package
     runs-on: macos-latest
     permissions:
@@ -60,6 +66,14 @@ jobs:
           cache-dependency-path: core-go/go.sum
       - run: npm ci
       - run: npm run build
+      - name: Check npm token
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "NPM_TOKEN repository secret is required to publish to npm."
+            exit 1
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - run: npm publish --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
