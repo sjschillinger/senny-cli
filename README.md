@@ -1,8 +1,8 @@
 # Senny CLI
 
-Senny is a TypeScript-first coding-agent harness derived from the public behavior and goals of Late CLI, with an architecture intended for future Senny development.
+Senny is a TypeScript-first coding-agent harness derived from the public behavior and goals of [Late CLI](https://github.com/mlhher/late-cli), with an architecture intended for future Senny development.
 
-This repository is a fork of Late CLI and preserves the upstream fork history as the behavioral baseline. Local reference checkouts under `references/` are intentionally ignored and are not required to build or use Senny. Claude Code reference files may inform product goals at a high level, but Senny's TypeScript implementation is original and does not port or closely rewrite Claude Code source.
+This repository is a fork of [Late CLI](https://github.com/mlhher/late-cli) and preserves the upstream fork history as the behavioral baseline. Local reference checkouts under `references/` are intentionally ignored and are not required to build or use Senny. Claude Code reference files may inform product goals at a high level, but Senny's TypeScript implementation is original and does not port or closely rewrite Claude Code source.
 
 ## Architecture
 
